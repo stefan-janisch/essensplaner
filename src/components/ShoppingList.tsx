@@ -67,7 +67,6 @@ export const ShoppingList: React.FC = () => {
   };
 
   const handleExportToBring = () => {
-    // Create a form to POST the data and open in new tab
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = `${API_URL}/api/bring-export`;

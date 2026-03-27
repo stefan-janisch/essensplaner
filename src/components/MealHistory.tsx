@@ -185,7 +185,22 @@ const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) 
         onClick={(e) => e.stopPropagation()}
       >
         <form onSubmit={handleSubmit}>
-          <h3 style={{ marginTop: 0 }}>Rezept bearbeiten</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <h3 style={{ margin: 0 }}>Rezept bearbeiten</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                border: 'none',
+                background: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                padding: '0 5px',
+              }}
+            >
+              ×
+            </button>
+          </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>

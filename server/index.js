@@ -235,39 +235,39 @@ Regeln:
   }
 });
 
-// Bring! export endpoint
-app.post('/api/bring-export', (req, res) => {
-  try {
-    // Parse shoppingList from form data or JSON
-    let shoppingList;
-    if (typeof req.body.shoppingList === 'string') {
-      shoppingList = JSON.parse(req.body.shoppingList);
-    } else {
-      shoppingList = req.body.shoppingList;
-    }
+// Bring! export - in-memory store for exported shopping lists
+const bringExports = new Map();
 
-    if (!shoppingList || !Array.isArray(shoppingList)) {
-      return res.status(400).json({ error: 'shoppingList array is required' });
-    }
+function buildBringHtml(shoppingList) {
+  const recipeIngredients = shoppingList.map(item => {
+    const amountsStr = item.amounts.map(a => {
+      if (a.unit === 'Stück') {
+        return `${a.amount}`;
+      }
+      return `${a.amount} ${a.unit}`;
+    }).join(' + ');
+    return `${amountsStr} ${item.name}`;
+  });
 
-    const ingredientsList = shoppingList
-      .map(item => {
-        const amountsStr = item.amounts.map(a => {
-          // Skip unit if it's "Stück" - Bring doesn't recognize it
-          if (a.unit === 'Stück') {
-            return `${a.amount}`;
-          }
-          return `${a.amount}${a.unit}`;
-        }).join(' + ');
-        return `    <li itemprop="ingredients">${amountsStr} ${item.name}</li>`;
-      })
-      .join('\n');
+  const ingredientsListHtml = recipeIngredients
+    .map(text => `    <li>${text}</li>`)
+    .join('\n');
 
-    const html = `<!DOCTYPE html>
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Recipe",
+    "name": "Einkaufsliste",
+    "recipeIngredient": recipeIngredients
+  };
+
+  return `<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Einkaufsliste → Bring!</title>
+  <title>Einkaufsliste - Bring!</title>
+  <script type="application/ld+json">
+${JSON.stringify(jsonLd, null, 2)}
+  </script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -289,12 +289,10 @@ app.post('/api/bring-export', (req, res) => {
 </head>
 <body>
 
-  <div itemtype="http://schema.org/Recipe">
-    <h1 itemprop="name">Einkaufsliste</h1>
-    <ul>
-${ingredientsList}
-    </ul>
-  </div>
+  <h1>Einkaufsliste</h1>
+  <ul>
+${ingredientsListHtml}
+  </ul>
 
   <script async src="https://platform.getbring.com/widgets/import.js"></script>
   <div data-bring-import data-bring-language="de" data-bring-theme="dark" style="display:none">
@@ -303,13 +301,48 @@ ${ingredientsList}
 
 </body>
 </html>`;
+}
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+// POST: store shopping list and redirect to a GET-able URL
+app.post('/api/bring-export', (req, res) => {
+  try {
+    let shoppingList;
+    if (typeof req.body.shoppingList === 'string') {
+      shoppingList = JSON.parse(req.body.shoppingList);
+    } else {
+      shoppingList = req.body.shoppingList;
+    }
+
+    if (!shoppingList || !Array.isArray(shoppingList)) {
+      return res.status(400).json({ error: 'shoppingList array is required' });
+    }
+
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    bringExports.set(id, { shoppingList, createdAt: Date.now() });
+
+    // Clean up exports older than 1 hour
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    for (const [key, value] of bringExports) {
+      if (value.createdAt < oneHourAgo) bringExports.delete(key);
+    }
+
+    res.redirect(303, `/api/bring-export/${id}`);
   } catch (error) {
     console.error('Error generating Bring! export:', error);
     res.status(500).json({ error: 'Fehler beim Erstellen der Bring!-Export-Seite' });
   }
+});
+
+// GET: serve the stored shopping list as HTML (Bring's parser fetches this)
+app.get('/api/bring-export/:id', (req, res) => {
+  const entry = bringExports.get(req.params.id);
+  if (!entry) {
+    return res.status(404).send('Export not found or expired.');
+  }
+
+  const html = buildBringHtml(entry.shoppingList);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 });
 
 // Health check
