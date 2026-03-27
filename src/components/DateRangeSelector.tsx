@@ -26,90 +26,56 @@ export const DateRangeSelector: React.FC = () => {
   };
 
   return (
-    <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
-      <h2 style={{ marginTop: 0 }}>Essensplaner</h2>
+    <div className="panel" style={{ marginBottom: '24px' }}>
+      <h2 style={{ marginTop: 0, fontSize: '28px', letterSpacing: '-0.5px' }}>Essensplaner</h2>
 
       {!state.startDate ? (
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <label>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             Von:
             <input
+              className="input"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              style={{ marginLeft: '5px', padding: '5px' }}
             />
           </label>
-          <label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             Bis:
             <input
+              className="input"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              style={{ marginLeft: '5px', padding: '5px' }}
             />
           </label>
           <button
+            className="btn btn-primary"
             onClick={handleInitialize}
             disabled={!startDate || !endDate}
-            style={{
-              padding: '6px 15px',
-              backgroundColor: '#4CAF50',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: startDate && endDate ? 'pointer' : 'not-allowed',
-            }}
           >
             Plan erstellen
           </button>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
           <div>
-            <strong>Zeitraum:</strong> {state.startDate} bis {state.endDate}
+            <strong>{state.startDate}</strong> bis <strong>{state.endDate}</strong>
           </div>
           {!showResetConfirm ? (
             <button
+              className="btn btn-danger"
               onClick={() => setShowResetConfirm(true)}
-              style={{
-                padding: '6px 15px',
-                backgroundColor: '#f44336',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
             >
               Plan zurücksetzen
             </button>
           ) : (
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ color: '#d32f2f' }}>Wirklich zurücksetzen?</span>
-              <button
-                onClick={handleReset}
-                style={{
-                  padding: '4px 12px',
-                  backgroundColor: '#f44336',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-              >
+              <span style={{ color: 'var(--color-danger)', fontWeight: 500 }}>Wirklich zurücksetzen?</span>
+              <button className="btn btn-danger btn-sm" onClick={handleReset}>
                 Ja
               </button>
-              <button
-                onClick={() => setShowResetConfirm(false)}
-                style={{
-                  padding: '4px 12px',
-                  backgroundColor: '#9e9e9e',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-              >
+              <button className="btn btn-muted btn-sm" onClick={() => setShowResetConfirm(false)}>
                 Abbrechen
               </button>
             </div>

@@ -153,20 +153,12 @@ export const AddMealForm: React.FC = () => {
   };
 
   return (
-    <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+    <div className="panel" style={{ marginTop: '20px' }}>
       {!isExpanded ? (
         <button
+          className="btn btn-primary btn-lg"
           onClick={() => setIsExpanded(true)}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            width: '100%',
-            fontSize: '16px',
-          }}
+          style={{ width: '100%' }}
         >
           + Neues Rezept hinzufügen
         </button>
@@ -177,25 +169,19 @@ export const AddMealForm: React.FC = () => {
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
             <input
+              className="input"
               type="url"
               value={recipeUrl}
               onChange={(e) => setRecipeUrl(e.target.value)}
               placeholder="https://..."
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '100%' }}
             />
             <button
               type="button"
+              className="btn btn-warning"
               onClick={handleParseFromURL}
               disabled={!recipeUrl.trim() || isParsing}
-              style={{
-                marginTop: '5px',
-                padding: '8px 15px',
-                backgroundColor: '#FF6B35',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: recipeUrl.trim() && !isParsing ? 'pointer' : 'not-allowed',
-              }}
+              style={{ marginTop: '8px' }}
             >
               {isParsing ? '🤖 Parst...' : '🌐 Rezept von URL parsen'}
             </button>
@@ -204,70 +190,68 @@ export const AddMealForm: React.FC = () => {
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Name:*</label>
             <input
+              className="input"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '100%' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Portionen:*</label>
             <input
+              className="input"
               type="number"
               min="1"
               value={servings}
               onChange={(e) => setServings(parseInt(e.target.value) || 1)}
               required
-              style={{ width: '100px', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '100px' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Kommentar:</label>
             <textarea
+              className="textarea"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Optionale Notizen zum Rezept..."
               rows={3}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontFamily: 'inherit' }}
+              style={{ width: '100%' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Zubereitung:</label>
             <textarea
+              className="textarea"
               value={recipeText}
               onChange={(e) => setRecipeText(e.target.value)}
               placeholder="Optionale Zubereitungsschritte..."
               rows={6}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontFamily: 'inherit' }}
+              style={{ width: '100%' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>ODER Zutatenliste einfügen:</label>
             <textarea
+              className="textarea"
               value={ingredientText}
               onChange={(e) => setIngredientText(e.target.value)}
-              placeholder="Z.B.:&#10;2 Zwiebeln&#10;500g Tomaten&#10;3 Zehen Knoblauch&#10;2 EL Olivenöl"
+              placeholder={"Z.B.:\n2 Zwiebeln\n500g Tomaten\n3 Zehen Knoblauch\n2 EL Olivenöl"}
               rows={6}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontFamily: 'inherit' }}
+              style={{ width: '100%' }}
             />
             <button
               type="button"
+              className="btn btn-accent"
               onClick={handleParseIngredients}
               disabled={!ingredientText.trim() || isParsing}
-              style={{
-                marginTop: '5px',
-                padding: '8px 15px',
-                backgroundColor: '#9c27b0',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: ingredientText.trim() && !isParsing ? 'pointer' : 'not-allowed',
-              }}
+              style={{ marginTop: '8px' }}
             >
               {isParsing ? '🤖 Parst...' : '📝 Text parsen'}
             </button>
@@ -278,56 +262,43 @@ export const AddMealForm: React.FC = () => {
             {ingredients.map((ing, index) => (
               <div key={index} style={{ display: 'flex', gap: '5px', marginBottom: '5px' }}>
                 <input
+                  className="input"
                   type="text"
                   placeholder="Zutat"
                   value={ing.name}
                   onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
                   style={{
                     flex: 2,
-                    padding: '6px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: '#ffebee', borderColor: '#f44336', color: '#c62828' } : {})
+                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {})
                   }}
                 />
                 <input
+                  className="input"
                   type="number"
                   placeholder="Menge"
                   value={ing.amount || ''}
                   onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
                   style={{
                     flex: 1,
-                    padding: '6px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: '#ffebee', borderColor: '#f44336', color: '#c62828' } : {})
+                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {})
                   }}
                 />
                 <input
+                  className="input"
                   type="text"
                   placeholder="Einheit"
                   value={ing.unit}
                   onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
                   style={{
                     flex: 1,
-                    padding: '6px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: '#ffebee', borderColor: '#f44336', color: '#c62828', fontWeight: 'bold' } : {})
+                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {})
                   }}
                 />
                 {ingredients.length > 1 && (
                   <button
                     type="button"
+                    className="btn btn-danger btn-sm"
                     onClick={() => handleRemoveIngredient(index)}
-                    style={{
-                      padding: '6px 10px',
-                      backgroundColor: '#f44336',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                    }}
                   >
                     ✗
                   </button>
@@ -336,47 +307,19 @@ export const AddMealForm: React.FC = () => {
             ))}
             <button
               type="button"
+              className="btn btn-muted btn-sm"
               onClick={handleAddIngredient}
-              style={{
-                marginTop: '5px',
-                padding: '6px 12px',
-                backgroundColor: '#9e9e9e',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
+              style={{ marginTop: '5px' }}
             >
               + Zutat hinzufügen
             </button>
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              type="submit"
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#4CAF50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button type="submit" className="btn btn-primary">
               Speichern
             </button>
-            <button
-              type="button"
-              onClick={() => setIsExpanded(false)}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#9e9e9e',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button type="button" className="btn btn-muted" onClick={() => setIsExpanded(false)}>
               Abbrechen
             </button>
           </div>

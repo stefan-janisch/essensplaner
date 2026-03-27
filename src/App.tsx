@@ -46,10 +46,10 @@ function MealPlannerContent() {
 
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div style={{ padding: '20px', width: '80%', margin: '0 auto' }}>
+      <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
         <DateRangeSelector />
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '20px', minWidth: '0' }}>
+        <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
           <div>
             <MealPlanTable />
             <AddMealForm />
@@ -66,15 +66,15 @@ function MealPlannerContent() {
         {activeMeal ? (
           <div
             style={{
-              padding: '10px',
-              backgroundColor: 'white',
-              border: '2px solid #2196F3',
-              borderRadius: '6px',
-              boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+              padding: '12px 16px',
+              backgroundColor: 'var(--surface-0)',
+              border: '2px solid var(--accent)',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: 'var(--shadow-lg)',
               cursor: 'grabbing',
             }}
           >
-            <div style={{ fontWeight: 'bold' }}>{activeMeal.name}</div>
+            <div style={{ fontWeight: 'bold', color: 'var(--text-h)' }}>{activeMeal.name}</div>
           </div>
         ) : null}
       </DragOverlay>

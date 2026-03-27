@@ -32,65 +32,49 @@ const DraggableMealCard: React.FC<DraggableMealCardProps> = ({ meal, onEdit }) =
   return (
     <div
       ref={setNodeRef}
+      className="card card-draggable"
       style={{
         ...style,
-        padding: '10px',
+        padding: '12px',
         marginBottom: '8px',
-        backgroundColor: 'white',
-        border: '1px solid #ddd',
-        borderRadius: '6px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
       }}
     >
       <div style={{ flex: 1, cursor: isDragging ? 'grabbing' : 'grab' }} {...listeners} {...attributes}>
-        <div style={{ fontWeight: 'bold', marginBottom: '3px' }}>{meal.name}</div>
-        <div style={{ fontSize: '12px', color: '#666' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '3px', color: 'var(--text-h)' }}>{meal.name}</div>
+        <div style={{ fontSize: '12px', color: 'var(--text)' }}>
           {meal.ingredients.length} Zutaten • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '5px' }}>
+      <div style={{ display: 'flex', gap: '2px' }}>
         <button
+          className="btn-ghost"
           onClick={(e) => {
             e.stopPropagation();
             toggleMealStar(meal.id);
           }}
-          style={{
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '18px',
-          }}
+          style={{ fontSize: '18px' }}
           title={meal.starred ? 'Favorit entfernen' : 'Als Favorit markieren'}
         >
           {meal.starred ? '⭐' : '☆'}
         </button>
         <button
+          className="btn-ghost"
           onClick={(e) => {
             e.stopPropagation();
             onEdit(meal);
           }}
-          style={{
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '16px',
-            color: '#2196F3',
-          }}
+          style={{ fontSize: '16px', color: 'var(--accent)' }}
           title="Bearbeiten"
         >
           ✏️
         </button>
         <button
+          className="btn-ghost"
           onClick={handleDelete}
-          style={{
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '16px',
-            color: '#f44336',
-          }}
+          style={{ fontSize: '16px', color: 'var(--color-danger)' }}
           title="Löschen"
         >
           🗑️
@@ -157,47 +141,16 @@ const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) 
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
-      onClick={onClose}
-    >
+    <div className="modal-backdrop" onClick={onClose}>
       <div
-        style={{
-          backgroundColor: 'white',
-          padding: '20px',
-          borderRadius: '8px',
-          maxWidth: '600px',
-          maxHeight: '80vh',
-          overflow: 'auto',
-          width: '90%',
-        }}
+        className="modal-content"
+        style={{ maxWidth: '600px', width: '90%' }}
         onClick={(e) => e.stopPropagation()}
       >
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3 style={{ margin: 0 }}>Rezept bearbeiten</h3>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                border: 'none',
-                background: 'none',
-                fontSize: '24px',
-                cursor: 'pointer',
-                padding: '0 5px',
-              }}
-            >
+            <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>
               ×
             </button>
           </div>
@@ -205,56 +158,61 @@ const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
             <input
+              className="input"
               type="url"
               value={recipeUrl}
               onChange={(e) => setRecipeUrl(e.target.value)}
               placeholder="https://..."
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '100%' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Name:*</label>
             <input
+              className="input"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '100%' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Portionen:*</label>
             <input
+              className="input"
               type="number"
               min="1"
               value={servings}
               onChange={(e) => setServings(parseInt(e.target.value) || 1)}
               required
-              style={{ width: '100px', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '100px' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Kommentar:</label>
             <textarea
+              className="textarea"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Optionale Notizen zum Rezept..."
               rows={3}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontFamily: 'inherit' }}
+              style={{ width: '100%' }}
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px' }}>Zubereitung:</label>
             <textarea
+              className="textarea"
               value={recipeText}
               onChange={(e) => setRecipeText(e.target.value)}
               placeholder="Optionale Zubereitungsschritte..."
               rows={6}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontFamily: 'inherit' }}
+              style={{ width: '100%' }}
             />
           </div>
 
@@ -263,56 +221,43 @@ const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) 
             {ingredients.map((ing, index) => (
               <div key={index} style={{ display: 'flex', gap: '5px', marginBottom: '5px' }}>
                 <input
+                  className="input"
                   type="text"
                   placeholder="Zutat"
                   value={ing.name}
                   onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
                   style={{
                     flex: 2,
-                    padding: '6px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: '#ffebee', borderColor: '#f44336', color: '#c62828' } : {})
+                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {})
                   }}
                 />
                 <input
+                  className="input"
                   type="number"
                   placeholder="Menge"
                   value={ing.amount || ''}
                   onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
                   style={{
                     flex: 1,
-                    padding: '6px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: '#ffebee', borderColor: '#f44336', color: '#c62828' } : {})
+                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {})
                   }}
                 />
                 <input
+                  className="input"
                   type="text"
                   placeholder="Einheit"
                   value={ing.unit}
                   onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
                   style={{
                     flex: 1,
-                    padding: '6px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: '#ffebee', borderColor: '#f44336', color: '#c62828', fontWeight: 'bold' } : {})
+                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {})
                   }}
                 />
                 {ingredients.length > 1 && (
                   <button
                     type="button"
+                    className="btn btn-danger btn-sm"
                     onClick={() => handleRemoveIngredient(index)}
-                    style={{
-                      padding: '6px 10px',
-                      backgroundColor: '#f44336',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                    }}
                   >
                     ✗
                   </button>
@@ -321,47 +266,19 @@ const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) 
             ))}
             <button
               type="button"
+              className="btn btn-muted btn-sm"
               onClick={handleAddIngredient}
-              style={{
-                marginTop: '5px',
-                padding: '6px 12px',
-                backgroundColor: '#9e9e9e',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
+              style={{ marginTop: '5px' }}
             >
               + Zutat hinzufügen
             </button>
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              type="submit"
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#4CAF50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button type="submit" className="btn btn-primary">
               Speichern
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#9e9e9e',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button type="button" className="btn btn-muted" onClick={onClose}>
               Abbrechen
             </button>
           </div>
@@ -374,10 +291,16 @@ const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) 
 export const MealHistory: React.FC = () => {
   const { state, updateMeal } = useMealPlan();
   const [filter, setFilter] = useState<'all' | 'starred'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
 
   const filteredMeals = state.meals.filter(meal => {
-    if (filter === 'starred') return meal.starred;
+    if (filter === 'starred' && !meal.starred) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return meal.name.toLowerCase().includes(q) ||
+        meal.ingredients.some(ing => ing.name.toLowerCase().includes(q));
+    }
     return true;
   });
 
@@ -389,42 +312,37 @@ export const MealHistory: React.FC = () => {
   });
 
   return (
-    <div style={{ padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '8px', height: '100%' }}>
-      <h3 style={{ marginTop: 0 }}>Rezepte</h3>
+    <div className="panel" style={{ height: '100%' }}>
+      <h3 style={{ marginTop: 0, color: 'var(--text-h)' }}>Rezepte</h3>
 
-      <div style={{ marginBottom: '15px', display: 'flex', gap: '10px' }}>
+      <div style={{ marginBottom: '15px', display: 'flex', gap: '8px' }}>
         <button
+          className={`pill ${filter === 'all' ? 'pill-active' : ''}`}
           onClick={() => setFilter('all')}
-          style={{
-            padding: '6px 12px',
-            backgroundColor: filter === 'all' ? '#2196F3' : '#e0e0e0',
-            color: filter === 'all' ? 'white' : 'black',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
         >
           Alle ({state.meals.length})
         </button>
         <button
+          className={`pill ${filter === 'starred' ? 'pill-active' : ''}`}
           onClick={() => setFilter('starred')}
-          style={{
-            padding: '6px 12px',
-            backgroundColor: filter === 'starred' ? '#2196F3' : '#e0e0e0',
-            color: filter === 'starred' ? 'white' : 'black',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
         >
           ⭐ Favoriten ({state.meals.filter(m => m.starred).length})
         </button>
       </div>
 
-      <div style={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+      <input
+        className="input"
+        type="text"
+        placeholder="Rezept suchen..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        style={{ width: '100%', marginBottom: '12px' }}
+      />
+
+      <div style={{ maxHeight: 'calc(100vh - 350px)', overflowY: 'auto' }}>
         {sortedMeals.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#999', padding: '20px' }}>
-            {filter === 'starred' ? 'Keine Favoriten vorhanden' : 'Keine Rezepte vorhanden'}
+          <div style={{ textAlign: 'center', color: 'var(--text)', padding: '20px' }}>
+            {searchQuery.trim() ? 'Keine Treffer' : filter === 'starred' ? 'Keine Favoriten vorhanden' : 'Keine Rezepte vorhanden'}
           </div>
         ) : (
           sortedMeals.map(meal => (

@@ -106,103 +106,50 @@ export const ShoppingList: React.FC = () => {
   }
 
   return (
-    <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '8px' }}>
+    <div className="panel" style={{ marginTop: '20px', backgroundColor: 'var(--color-primary-light)' }}>
       {!isExpanded ? (
         <button
+          className="btn btn-primary btn-lg"
           onClick={() => setIsExpanded(true)}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            width: '100%',
-            fontSize: '16px',
-          }}
+          style={{ width: '100%' }}
         >
           🛒 Einkaufsliste anzeigen ({shoppingList.length} Zutaten)
         </button>
       ) : (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ margin: 0 }}>Einkaufsliste</h3>
-            <button
-              onClick={() => setIsExpanded(false)}
-              style={{
-                border: 'none',
-                background: 'none',
-                fontSize: '20px',
-                cursor: 'pointer',
-              }}
-            >
+            <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Einkaufsliste</h3>
+            <button className="btn-ghost" onClick={() => setIsExpanded(false)} style={{ fontSize: '20px' }}>
               ✕
             </button>
           </div>
 
           <div style={{ marginBottom: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              onClick={handlePrint}
-              style={{
-                padding: '8px 15px',
-                backgroundColor: '#2196F3',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button className="btn btn-accent" onClick={handlePrint}>
               🖨️ Drucken
             </button>
-            <button
-              onClick={handleCopyToClipboard}
-              style={{
-                padding: '8px 15px',
-                backgroundColor: '#9c27b0',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button className="btn btn-accent" onClick={handleCopyToClipboard}>
               📋 Kopieren
             </button>
-            <button
-              onClick={handleExportToBring}
-              style={{
-                padding: '8px 15px',
-                backgroundColor: '#FF6B35',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
+            <button className="btn btn-warning" onClick={handleExportToBring}>
               🛍️ Export to Bring!
             </button>
           </div>
 
-          <div
-            style={{
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              backgroundColor: 'white',
-              padding: '15px',
-              borderRadius: '4px',
-            }}
-          >
+          <div className="card" style={{ padding: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
             <ul style={{ listStyleType: 'none', padding: 0, margin: 0 }}>
               {shoppingList.map((item, index) => (
                 <li
                   key={index}
                   style={{
                     padding: '10px',
-                    borderBottom: index < shoppingList.length - 1 ? '1px solid #eee' : 'none',
+                    borderBottom: index < shoppingList.length - 1 ? '1px solid var(--border-light)' : 'none',
                   }}
                 >
                   {editingIndex === index ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '3px' }}>
                       <input
+                        className="input"
                         type="text"
                         value={editingName}
                         onChange={(e) => setEditingName(e.target.value)}
@@ -211,64 +158,29 @@ export const ShoppingList: React.FC = () => {
                           if (e.key === 'Escape') handleCancelEdit();
                         }}
                         autoFocus
-                        style={{
-                          flex: 1,
-                          padding: '4px 8px',
-                          fontSize: '14px',
-                          fontWeight: 'bold',
-                          border: '2px solid #2196F3',
-                          borderRadius: '4px',
-                        }}
+                        style={{ flex: 1, fontWeight: 'bold' }}
                       />
-                      <button
-                        onClick={() => handleSaveEdit(item.name)}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: '#4CAF50',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                        }}
-                      >
+                      <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit(item.name)}>
                         ✓
                       </button>
-                      <button
-                        onClick={handleCancelEdit}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: '#f44336',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                        }}
-                      >
+                      <button className="btn btn-danger btn-sm" onClick={handleCancelEdit}>
                         ✕
                       </button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                      <div style={{ fontWeight: 'bold', flex: 1 }}>{item.name}</div>
+                      <div style={{ fontWeight: 'bold', flex: 1, color: 'var(--text-h)' }}>{item.name}</div>
                       <button
+                        className="btn-ghost"
                         onClick={() => handleStartEdit(index, item.name)}
-                        style={{
-                          border: 'none',
-                          background: 'none',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          padding: '2px 5px',
-                          color: '#2196F3',
-                        }}
+                        style={{ fontSize: '14px', color: 'var(--accent)' }}
                         title="Zutat umbenennen"
                       >
                         ✏️
                       </button>
                     </div>
                   )}
-                  <div style={{ fontSize: '14px', color: '#666' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--text)' }}>
                     {item.amounts.map((a, i) => (
                       <span key={i}>
                         {a.amount} {a.unit}

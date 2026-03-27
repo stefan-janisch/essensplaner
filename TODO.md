@@ -1,1 +1,10 @@
-- [ ] Add server-side persistence of data via a database where meal plans can be shared via URL
+- [ ] Add server-side persistence of data via a database
+- [ ] Add user accounts and authentication to allow users to save meal plans and recipes and access them across devices
+- [ ] Implement sharing of meal plans between users
+- [ ] Add comprehensive recipe management suite
+    - [ ] Add recipe management site to add/edit/delete recipes
+    - [ ] Add recipe categories
+    - [ ] Add recipe tags
+    - [ ] Add recipe search functionality
+    - [ ] Add recipe star ratings
+- [ ] Add photos to meals and let LLM identify suitable photo when web parsing recipes

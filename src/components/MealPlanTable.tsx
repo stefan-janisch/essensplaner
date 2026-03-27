@@ -16,45 +16,15 @@ const RecipeCardModal: React.FC<RecipeCardModalProps> = ({ meal, servings, onClo
   const hasRecipeText = meal.recipeText && meal.recipeText.trim().length > 0;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
-      onClick={onClose}
-    >
+    <div className="modal-backdrop" onClick={onClose}>
       <div
-        style={{
-          backgroundColor: 'white',
-          padding: '20px',
-          borderRadius: '8px',
-          maxWidth: hasRecipeText ? '1200px' : '600px',
-          maxHeight: '80vh',
-          overflow: 'auto',
-          width: '90%',
-        }}
+        className="modal-content"
+        style={{ maxWidth: hasRecipeText ? '1200px' : '600px', width: '90%' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
           <h2 style={{ margin: 0 }}>{meal.name}</h2>
-          <button
-            onClick={onClose}
-            style={{
-              border: 'none',
-              background: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              padding: '0 5px',
-            }}
-          >
+          <button className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>
             ×
           </button>
         </div>
@@ -62,7 +32,7 @@ const RecipeCardModal: React.FC<RecipeCardModalProps> = ({ meal, servings, onClo
         <div style={{ marginBottom: '15px' }}>
           <strong>Portionen:</strong> {servings}
           {servings !== meal.defaultServings && (
-            <span style={{ fontSize: '12px', color: '#666', marginLeft: '5px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text)', marginLeft: '5px' }}>
               (skaliert von {meal.defaultServings})
             </span>
           )}
@@ -70,19 +40,14 @@ const RecipeCardModal: React.FC<RecipeCardModalProps> = ({ meal, servings, onClo
 
         {meal.recipeUrl && (
           <div style={{ marginBottom: '15px' }}>
-            <a
-              href={meal.recipeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#2196F3' }}
-            >
+            <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">
               🔗 Zum Rezept
             </a>
           </div>
         )}
 
         {meal.comment && (
-          <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+          <div style={{ marginBottom: '15px', padding: '12px', backgroundColor: 'var(--surface-1)', borderRadius: 'var(--radius-sm)' }}>
             <strong>Kommentar:</strong>
             <div style={{ marginTop: '5px' }}>{meal.comment}</div>
           </div>
@@ -93,7 +58,7 @@ const RecipeCardModal: React.FC<RecipeCardModalProps> = ({ meal, servings, onClo
             <h3>Zutaten</h3>
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {meal.ingredients.map((ing, index) => (
-                <li key={index} style={{ marginBottom: '8px', padding: '8px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+                <li key={index} style={{ marginBottom: '8px', padding: '10px', backgroundColor: 'var(--surface-1)', borderRadius: 'var(--radius-sm)' }}>
                   <strong>{(ing.amount * scaleFactor).toFixed(1)} {ing.unit}</strong> {ing.name}
                 </li>
               ))}
@@ -103,7 +68,7 @@ const RecipeCardModal: React.FC<RecipeCardModalProps> = ({ meal, servings, onClo
           {hasRecipeText && (
             <div>
               <h3>Zubereitung</h3>
-              <div style={{ whiteSpace: 'pre-line', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+              <div style={{ whiteSpace: 'pre-line', padding: '12px', backgroundColor: 'var(--surface-1)', borderRadius: 'var(--radius-sm)' }}>
                 {meal.recipeText}
               </div>
             </div>
@@ -170,32 +135,20 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
     <td
       ref={setDropRef}
       style={{
-        border: '1px solid #ddd',
-        padding: '10px',
         minHeight: '80px',
         backgroundColor: !entry.enabled
-          ? '#f0f0f0'
+          ? 'var(--surface-2)'
           : isOver
-          ? '#e3f2fd'
-          : meal
-          ? '#fff3e0'
-          : 'white',
+          ? 'var(--surface-drop)'
+          : undefined,
         opacity: entry.enabled ? 1 : 0.5,
         position: 'relative',
-        verticalAlign: 'top',
       }}
     >
       <button
+        className="btn-ghost"
         onClick={handleToggleEnabled}
-        style={{
-          position: 'absolute',
-          top: '3px',
-          right: '3px',
-          border: 'none',
-          background: 'none',
-          cursor: 'pointer',
-          fontSize: '16px',
-        }}
+        style={{ position: 'absolute', top: '4px', right: '4px', fontSize: '14px', padding: '2px 6px' }}
         title={entry.enabled ? 'Deaktivieren' : 'Aktivieren'}
       >
         {entry.enabled ? '✓' : '✗'}
@@ -208,14 +161,12 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
             style={{
               ...dragStyle,
               opacity: isDragging ? 0.5 : 1,
+              paddingRight: '20px',
             }}
           >
-            <div
-              style={{ fontWeight: 'bold', marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}
-            >
+            <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '4px', lineHeight: 1.3 }}>
               <span
-                ref={undefined}
-                style={{ cursor: isDragging ? 'grabbing' : 'grab', color: '#999', userSelect: 'none', flexShrink: 0 }}
+                style={{ cursor: isDragging ? 'grabbing' : 'grab', color: 'var(--color-muted)', userSelect: 'none', flexShrink: 0, fontSize: '12px', lineHeight: 1 }}
                 title="Ziehen um zu verschieben"
                 {...listeners}
                 {...attributes}
@@ -223,78 +174,60 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
                 ⠿
               </span>
               <span
-                style={{ color: '#2196F3', cursor: 'pointer' }}
+                style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600, fontSize: '14px', textAlign: 'center', flex: 1 }}
                 onClick={() => setShowRecipeCard(true)}
               >
                 {meal.name}
               </span>
-              {meal.recipeUrl && (
+              {meal.recipeUrl ? (
                 <a
                   href={meal.recipeUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ fontSize: '14px', textDecoration: 'none' }}
+                  style={{ fontSize: '12px', flexShrink: 0 }}
                   onClick={(e) => e.stopPropagation()}
                   title="Rezept-Website öffnen"
                 >
                   🔗
                 </a>
+              ) : (
+                <span style={{ width: '12px', flexShrink: 0 }} />
               )}
             </div>
           </div>
-          <div>
           {isEditing ? (
-            <div style={{ display: 'flex', gap: '5px', alignItems: 'center', marginTop: '5px' }}>
+            <div style={{ display: 'flex', gap: '5px', alignItems: 'center', justifyContent: 'center', marginTop: '4px' }}>
               <input
+                className="input"
                 type="number"
                 min="1"
                 value={editServings}
                 onChange={(e) => setEditServings(parseInt(e.target.value) || 1)}
-                style={{ width: '50px', padding: '2px' }}
+                style={{ width: '50px', padding: '3px 6px', fontSize: '12px' }}
                 onClick={(e) => e.stopPropagation()}
               />
-              <span>Pers.</span>
-              <button
-                onClick={handleSaveServings}
-                style={{
-                  padding: '2px 8px',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  backgroundColor: '#4CAF50',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '3px',
-                }}
-              >
+              <span style={{ fontSize: '12px' }}>Pers.</span>
+              <button className="btn btn-primary btn-sm" onClick={handleSaveServings}>
                 OK
               </button>
             </div>
           ) : (
-            <div style={{ fontSize: '12px', color: '#666' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '2px', textAlign: 'center' }}>
               <span
                 onClick={handleEditServings}
                 style={{ cursor: 'pointer', textDecoration: 'underline' }}
               >
                 {entry.servings} Person{entry.servings !== 1 ? 'en' : ''}
               </span>
+              {' · '}
+              <span
+                onClick={handleRemoveMeal}
+                style={{ cursor: 'pointer', color: 'var(--color-danger)' }}
+              >
+                Entfernen
+              </span>
             </div>
           )}
-          <button
-            onClick={handleRemoveMeal}
-            style={{
-              marginTop: '5px',
-              padding: '2px 8px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              backgroundColor: '#f44336',
-              color: 'white',
-              border: 'none',
-              borderRadius: '3px',
-            }}
-          >
-            Entfernen
-          </button>
-        </div>
 
         {showRecipeCard && (
           <RecipeCardModal
@@ -314,7 +247,7 @@ export const MealPlanTable: React.FC = () => {
 
   if (!state.startDate || !state.endDate) {
     return (
-      <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text)' }}>
         Bitte wählen Sie einen Zeitraum aus, um den Plan zu erstellen.
       </div>
     );
@@ -333,29 +266,30 @@ export const MealPlanTable: React.FC = () => {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px', marginBottom: '10px' }}>
-        <label style={{ fontSize: '14px', color: '#555' }}>Standard-Portionen:</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px', marginBottom: '12px' }}>
+        <label>Standard-Portionen:</label>
         <input
+          className="input"
           type="number"
           min="1"
           value={defaultServings}
           onChange={(e) => setDefaultServings(Math.max(1, parseInt(e.target.value) || 1))}
-          style={{ width: '60px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center' }}
+          style={{ width: '60px', textAlign: 'center' }}
         />
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="meal-table">
         <thead>
-          <tr style={{ backgroundColor: '#e0e0e0' }}>
-            <th style={{ border: '1px solid #ddd', padding: '10px', textAlign: 'left' }}>Datum</th>
-            <th style={{ border: '1px solid #ddd', padding: '10px' }}>Frühstück</th>
-            <th style={{ border: '1px solid #ddd', padding: '10px' }}>Mittagessen</th>
-            <th style={{ border: '1px solid #ddd', padding: '10px' }}>Abendessen</th>
+          <tr>
+            <th>Datum</th>
+            <th>Frühstück</th>
+            <th>Mittagessen</th>
+            <th>Abendessen</th>
           </tr>
         </thead>
         <tbody>
           {dates.map(date => (
             <tr key={date}>
-              <td style={{ border: '1px solid #ddd', padding: '10px', fontWeight: 'bold' }}>
+              <td style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                 {format(parseISO(date), 'EEE, dd.MM.yyyy', { locale: de })}
               </td>
               <MealCell date={date} mealType="breakfast" />
