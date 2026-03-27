@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { useMealPlan } from '../context/MealPlanContext';
@@ -128,11 +128,21 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
   const entry = state.entries.find(e => e.date === date && e.mealType === mealType);
   const meal = entry?.mealId ? state.meals.find(m => m.id === entry.mealId) : null;
 
-  const { setNodeRef, isOver } = useDroppable({
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `${date}-${mealType}`,
     data: { date, mealType },
     disabled: !entry?.enabled,
   });
+
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
+    id: `cell:${date}:${mealType}`,
+    data: { meal, sourceDate: date, sourceMealType: mealType },
+    disabled: !meal || !entry?.enabled,
+  });
+
+  const dragStyle = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
 
   if (!entry) return null;
 
@@ -158,7 +168,7 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
 
   return (
     <td
-      ref={setNodeRef}
+      ref={setDropRef}
       style={{
         border: '1px solid #ddd',
         padding: '10px',
@@ -193,10 +203,25 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
 
       {meal && entry.enabled && (
         <>
-          <div>
+          <div
+            ref={setDragRef}
+            style={{
+              ...dragStyle,
+              opacity: isDragging ? 0.5 : 1,
+            }}
+          >
             <div
               style={{ fontWeight: 'bold', marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}
             >
+              <span
+                ref={undefined}
+                style={{ cursor: isDragging ? 'grabbing' : 'grab', color: '#999', userSelect: 'none', flexShrink: 0 }}
+                title="Ziehen um zu verschieben"
+                {...listeners}
+                {...attributes}
+              >
+                ⠿
+              </span>
               <span
                 style={{ color: '#2196F3', cursor: 'pointer' }}
                 onClick={() => setShowRecipeCard(true)}
@@ -216,6 +241,8 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
                 </a>
               )}
             </div>
+          </div>
+          <div>
           {isEditing ? (
             <div style={{ display: 'flex', gap: '5px', alignItems: 'center', marginTop: '5px' }}>
               <input
@@ -283,7 +310,7 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
 };
 
 export const MealPlanTable: React.FC = () => {
-  const { state } = useMealPlan();
+  const { state, defaultServings, setDefaultServings } = useMealPlan();
 
   if (!state.startDate || !state.endDate) {
     return (
@@ -306,7 +333,17 @@ export const MealPlanTable: React.FC = () => {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px', marginBottom: '10px' }}>
+        <label style={{ fontSize: '14px', color: '#555' }}>Standard-Portionen:</label>
+        <input
+          type="number"
+          min="1"
+          value={defaultServings}
+          onChange={(e) => setDefaultServings(Math.max(1, parseInt(e.target.value) || 1))}
+          style={{ width: '60px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center' }}
+        />
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ backgroundColor: '#e0e0e0' }}>
             <th style={{ border: '1px solid #ddd', padding: '10px', textAlign: 'left' }}>Datum</th>

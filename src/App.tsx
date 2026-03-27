@@ -7,11 +7,11 @@ import { MealPlanTable } from './components/MealPlanTable';
 import { MealHistory } from './components/MealHistory';
 import { AddMealForm } from './components/AddMealForm';
 import { ShoppingList } from './components/ShoppingList';
-import type { Meal } from './types/index.js';
+import type { Meal, MealType } from './types/index.js';
 import './App.css';
 
 function MealPlannerContent() {
-  const { assignMealToSlot } = useMealPlan();
+  const { assignMealToSlot, moveMealBetweenSlots } = useMealPlan();
   const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -28,11 +28,19 @@ function MealPlannerContent() {
 
     if (!over) return;
 
-    const mealId = active.id as string;
     const dropData = over.data.current as { date: string; mealType: string } | undefined;
+    if (!dropData) return;
 
-    if (dropData) {
-      assignMealToSlot(dropData.date, dropData.mealType as any, mealId);
+    const sourceData = active.data.current as { sourceDate?: string; sourceMealType?: string } | undefined;
+
+    if (sourceData?.sourceDate && sourceData?.sourceMealType) {
+      // Cell-to-cell move (swap)
+      if (sourceData.sourceDate === dropData.date && sourceData.sourceMealType === dropData.mealType) return;
+      moveMealBetweenSlots(sourceData.sourceDate, sourceData.sourceMealType as MealType, dropData.date, dropData.mealType as MealType);
+    } else {
+      // Drag from history sidebar
+      const mealId = active.id as string;
+      assignMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
     }
   };
 

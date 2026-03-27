@@ -4,6 +4,8 @@ import type { Meal, MealPlanEntry, MealPlanState, MealType } from '../types/inde
 
 interface MealPlanContextType {
   state: MealPlanState;
+  defaultServings: number;
+  setDefaultServings: (servings: number) => void;
   initializeDateRange: (startDate: Date, endDate: Date) => void;
   resetMealPlan: () => void;
   addMeal: (meal: Omit<Meal, 'id'>) => void;
@@ -15,14 +17,26 @@ interface MealPlanContextType {
   toggleSlotEnabled: (date: string, mealType: MealType) => void;
   updateMealServings: (date: string, mealType: MealType, servings: number) => void;
   renameIngredientInAllMeals: (oldName: string, newName: string) => void;
+  moveMealBetweenSlots: (fromDate: string, fromMealType: MealType, toDate: string, toMealType: MealType) => void;
 }
 
 const MealPlanContext = createContext<MealPlanContextType | undefined>(undefined);
 
 const STORAGE_KEY_PLAN = 'essensplaner_plan';
 const STORAGE_KEY_MEALS = 'essensplaner_meals';
+const STORAGE_KEY_DEFAULT_SERVINGS = 'essensplaner_default_servings';
 
 export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [defaultServings, setDefaultServingsState] = useState<number>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_DEFAULT_SERVINGS);
+    return saved ? Number(saved) : 2;
+  });
+
+  const setDefaultServings = (servings: number) => {
+    setDefaultServingsState(servings);
+    localStorage.setItem(STORAGE_KEY_DEFAULT_SERVINGS, String(servings));
+  };
+
   const [state, setState] = useState<MealPlanState>(() => {
     // Load from localStorage
     const savedPlan = localStorage.getItem(STORAGE_KEY_PLAN);
@@ -56,7 +70,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         date: format(date, 'yyyy-MM-dd'),
         mealType,
         mealId: null,
-        servings: 2,
+        servings: defaultServings,
         enabled: true,
       }))
     );
@@ -122,7 +136,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       ...prev,
       entries: prev.entries.map(entry =>
         entry.date === date && entry.mealType === mealType
-          ? { ...entry, mealId }
+          ? { ...entry, mealId, servings: defaultServings }
           : entry
       ),
     }));
@@ -161,6 +175,29 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }));
   };
 
+  const moveMealBetweenSlots = (fromDate: string, fromMealType: MealType, toDate: string, toMealType: MealType) => {
+    setState(prev => {
+      const fromEntry = prev.entries.find(e => e.date === fromDate && e.mealType === fromMealType);
+      const toEntry = prev.entries.find(e => e.date === toDate && e.mealType === toMealType);
+      if (!fromEntry || !toEntry || !fromEntry.mealId) return prev;
+
+      return {
+        ...prev,
+        entries: prev.entries.map(entry => {
+          if (entry.date === fromDate && entry.mealType === fromMealType) {
+            // Source gets target's meal (swap) or null
+            return { ...entry, mealId: toEntry.mealId, servings: toEntry.mealId ? toEntry.servings : defaultServings };
+          }
+          if (entry.date === toDate && entry.mealType === toMealType) {
+            // Target gets source's meal
+            return { ...entry, mealId: fromEntry.mealId, servings: fromEntry.servings };
+          }
+          return entry;
+        }),
+      };
+    });
+  };
+
   const renameIngredientInAllMeals = (oldName: string, newName: string) => {
     if (!oldName.trim() || !newName.trim() || oldName === newName) return;
 
@@ -179,6 +216,8 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     <MealPlanContext.Provider
       value={{
         state,
+        defaultServings,
+        setDefaultServings,
         initializeDateRange,
         resetMealPlan,
         addMeal,
@@ -190,6 +229,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         toggleSlotEnabled,
         updateMealServings,
         renameIngredientInAllMeals,
+        moveMealBetweenSlots,
       }}
     >
       {children}
