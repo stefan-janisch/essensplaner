@@ -1,6 +1,6 @@
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MealPlanProvider, useMealPlan } from './context/MealPlanContext';
 import { AuthForm } from './components/AuthForm';
@@ -184,8 +184,43 @@ function useShareJoin(onJoined: () => void) {
   return { status, errorMsg };
 }
 
+function parseHash(hash: string): { view: AppView; planId?: number } {
+  if (hash === '#rezepte') return { view: 'recipes' };
+  if (hash.startsWith('#planer')) {
+    const id = parseInt(hash.split('/')[1]);
+    return { view: 'planner', planId: id || undefined };
+  }
+  return { view: 'overview' };
+}
+
 function AuthenticatedAppInner() {
-  const [view, setView] = useState<AppView>('overview');
+  const { selectPlan } = useMealPlan();
+  const [view, setViewState] = useState<AppView>(() => parseHash(window.location.hash).view);
+
+  const setView = useCallback((v: AppView, planId?: number) => {
+    setViewState(v);
+    if (v === 'recipes') window.location.hash = '#rezepte';
+    else if (v === 'planner' && planId) window.location.hash = `#planer/${planId}`;
+    else if (v === 'planner') window.location.hash = '#planer';
+    else window.location.hash = '#plaene';
+  }, []);
+
+  const openPlan = useCallback((planId: number) => {
+    selectPlan(planId);
+    setView('planner', planId);
+  }, [selectPlan, setView]);
+
+  // Listen for browser back/forward
+  useEffect(() => {
+    const onHashChange = () => {
+      const { view, planId } = parseHash(window.location.hash);
+      setViewState(view);
+      if (planId) selectPlan(planId);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [selectPlan]);
+
   const { status, errorMsg } = useShareJoin(() => setView('planner'));
 
   if (status === 'joining') {
@@ -208,7 +243,7 @@ function AuthenticatedAppInner() {
         </div>
       )}
       {view === 'overview' ? (
-        <MealPlanOverview onOpenPlan={() => setView('planner')} />
+        <MealPlanOverview onOpenPlan={openPlan} />
       ) : view === 'recipes' ? (
         <RecipeManagement />
       ) : (

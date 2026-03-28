@@ -402,7 +402,7 @@ label {
   object-fit: cover;
 }
 .recipe-card-photo-compact {
-  aspect-ratio: 16 / 7;
+  aspect-ratio: 16 / 5;
 }
 
 .recipe-card-photo-placeholder {

@@ -52,7 +52,7 @@ export function RecipeCard({
   dragHandleProps?: Record<string, unknown>;
 }) {
   return (
-    <div className="recipe-card" style={selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : undefined}>
+    <div className="recipe-card" onClick={!dragHandleProps && onView ? onView : undefined} style={{ ...(selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : {}), cursor: !dragHandleProps && onView ? 'pointer' : undefined }}>
       <div
         className={`recipe-card-photo${compact ? ' recipe-card-photo-compact' : ''}`}
         style={{ position: 'relative', cursor: dragHandleProps ? 'grab' : undefined }}
@@ -75,7 +75,7 @@ export function RecipeCard({
         )}
       </div>
       <div className="recipe-card-body">
-        <h4 className="recipe-card-title">{meal.name}</h4>
+        <h4 className="recipe-card-title" onClick={onView} style={onView ? { cursor: 'pointer' } : undefined}>{meal.name}</h4>
         {(meal.category || (meal.tags && meal.tags.length > 0)) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
             {meal.category && <span className="category-badge">{getCategoryLabel(meal.category)}</span>}
@@ -548,7 +548,9 @@ export const RecipeManagement: React.FC = () => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         return meal.name.toLowerCase().includes(q) ||
-          meal.ingredients.some(ing => ing.name.toLowerCase().includes(q));
+          meal.ingredients.some(ing => ing.name.toLowerCase().includes(q)) ||
+          meal.tags?.some(t => t.toLowerCase().includes(q)) ||
+          (meal.category && getCategoryLabel(meal.category)?.toLowerCase().includes(q));
       }
       return true;
     });

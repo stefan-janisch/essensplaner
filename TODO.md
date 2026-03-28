@@ -15,4 +15,6 @@
     - schwierigkeit:leicht
     - Do you have more ideas on helpful tags?
 
-- [ ] Everytime I refresh the page, it switches
+- [x] Everytime I refresh the page, it switches
+
+- Make mobile version

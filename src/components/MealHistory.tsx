@@ -101,7 +101,9 @@ export const MealHistory: React.FC = () => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         return meal.name.toLowerCase().includes(q) ||
-          meal.ingredients.some(ing => ing.name.toLowerCase().includes(q));
+          meal.ingredients.some(ing => ing.name.toLowerCase().includes(q)) ||
+          meal.tags?.some(t => t.toLowerCase().includes(q)) ||
+          (meal.category && getCategoryLabel(meal.category)?.toLowerCase().includes(q));
       }
       return true;
     });

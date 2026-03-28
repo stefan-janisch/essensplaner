@@ -146,7 +146,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
           {state.plans.map(plan => (
-            <div key={plan.id} className="card" style={{ padding: '20px', textAlign: 'center' }}>
+            <div key={plan.id} className="card" style={{ padding: '20px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleOpenPlan(plan.id)}>
               <div style={{ marginBottom: '12px' }}>
                 {renamingId === plan.id ? (
                   <input
@@ -155,18 +155,21 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
                     onChange={e => setRenameValue(e.target.value)}
                     onBlur={() => handleRename(plan.id)}
                     onKeyDown={e => { if (e.key === 'Enter') handleRename(plan.id); if (e.key === 'Escape') setRenamingId(null); }}
+                    onClick={e => e.stopPropagation()}
                     autoFocus
                     style={{ fontSize: '18px', fontWeight: 700, padding: '2px 6px', width: '100%', textAlign: 'center' }}
                   />
                 ) : (
                   <h3
-                    style={{ margin: 0, color: 'var(--text-h)', fontSize: '18px', cursor: plan.isOwner !== false ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => { if (plan.isOwner !== false) { setRenamingId(plan.id); setRenameValue(plan.name); } }}
-                    title={plan.isOwner !== false ? 'Klicken zum Umbenennen' : undefined}
+                    style={{ margin: 0, color: 'var(--text-h)', fontSize: '18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     {plan.name}
                     {plan.isOwner !== false && (
-                      <span style={{ fontSize: '14px', opacity: 0.5 }}>&#9998;</span>
+                      <span
+                        style={{ fontSize: '14px', opacity: 0.5, cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); setRenamingId(plan.id); setRenameValue(plan.name); }}
+                        title="Klicken zum Umbenennen"
+                      >&#9998;</span>
                     )}
                   </h3>
                 )}
@@ -188,7 +191,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
 
               {plan.startDate && plan.endDate && (
                 <div style={{ fontSize: '14px', color: 'var(--text)', marginBottom: '8px' }}>
-                  {plan.startDate} bis {plan.endDate}
+                  {plan.startDate.slice(8)}.{plan.startDate.slice(5,7)}.{plan.startDate.slice(2,4)} bis {plan.endDate.slice(8)}.{plan.endDate.slice(5,7)}.{plan.endDate.slice(2,4)}
                 </div>
               )}
 
@@ -208,7 +211,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
                 {filledEntryCount(plan)} Mahlzeiten geplant
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>
                 <button className="btn btn-primary btn-sm" onClick={() => handleOpenPlan(plan.id)}>
                   Öffnen
                 </button>

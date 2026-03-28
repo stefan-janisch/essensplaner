@@ -67,18 +67,26 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
           api.get<{ defaultServings: number }>('/api/settings'),
         ]);
         setDefaultServingsLocal(settings.defaultServings);
+
+        // Check URL hash for a specific plan ID
+        const hashMatch = window.location.hash.match(/^#planer\/(\d+)/);
+        const hashPlanId = hashMatch ? parseInt(hashMatch[1]) : null;
+        const initialPlanId = (hashPlanId && plans.some(p => p.id === hashPlanId))
+          ? hashPlanId
+          : (plans.length > 0 ? plans[0].id : null);
+
         setState({
           meals,
           plans,
-          activePlanId: plans.length > 0 ? plans[0].id : null,
+          activePlanId: initialPlanId,
         });
 
-        // If there's an active plan, load its entries
-        if (plans.length > 0) {
-          const planWithEntries = await api.get<MealPlan>(`/api/plans/${plans[0].id}`);
+        // Load entries for the active plan
+        if (initialPlanId) {
+          const planWithEntries = await api.get<MealPlan>(`/api/plans/${initialPlanId}`);
           setState(prev => ({
             ...prev,
-            plans: prev.plans.map(p => p.id === plans[0].id ? planWithEntries : p),
+            plans: prev.plans.map(p => p.id === initialPlanId ? planWithEntries : p),
           }));
         }
       } catch (err) {

@@ -359,15 +359,15 @@ ${JSON.stringify(jsonLd, null, 2)}
 </head>
 <body>
 
-  <h1>Einkaufsliste</h1>
-  <ul>
-${ingredientsListHtml}
-  </ul>
-
   <script async src="https://platform.getbring.com/widgets/import.js"></script>
   <div data-bring-import data-bring-language="de" data-bring-theme="dark" style="display:none">
     <a href="https://www.getbring.com">Bring!</a>
   </div>
+
+  <h1>Einkaufsliste</h1>
+  <ul>
+${ingredientsListHtml}
+  </ul>
 
 </body>
 </html>`;
