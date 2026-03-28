@@ -10,7 +10,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 type SortBy = 'name' | 'rating' | 'newest';
 
-function RatingStars({ rating, size = 16, onClick }: { rating?: number; size?: number; onClick?: (rating: number) => void }) {
+export function RatingStars({ rating, size = 16, onClick }: { rating?: number; size?: number; onClick?: (rating: number) => void }) {
   return (
     <span className={`rating-stars${onClick ? ' rating-stars-interactive' : ''}`} style={{ fontSize: `${size}px` }} onClick={e => e.stopPropagation()}>
       {[1, 2, 3, 4, 5].map(s => (
@@ -26,7 +26,7 @@ function RatingStars({ rating, size = 16, onClick }: { rating?: number; size?: n
   );
 }
 
-function RecipeCard({
+export function RecipeCard({
   meal,
   onView,
   onEdit,
@@ -36,33 +36,43 @@ function RecipeCard({
   onSetRating,
   selected,
   onToggleSelect,
+  compact,
+  dragHandleProps,
 }: {
   meal: Meal;
-  onView: () => void;
+  onView?: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onToggleStar: () => void;
   onAddToPlan?: () => void;
-  onSetRating: (rating: number) => void;
-  selected: boolean;
-  onToggleSelect: () => void;
+  onSetRating?: (rating: number) => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  compact?: boolean;
+  dragHandleProps?: Record<string, unknown>;
 }) {
   return (
-    <div className="recipe-card" onClick={onView} style={selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : undefined}>
-      <div className="recipe-card-photo" style={{ position: 'relative' }}>
+    <div className="recipe-card" style={selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : undefined}>
+      <div
+        className={`recipe-card-photo${compact ? ' recipe-card-photo-compact' : ''}`}
+        style={{ position: 'relative', cursor: dragHandleProps ? 'grab' : undefined }}
+        {...dragHandleProps}
+      >
         {meal.photoUrl ? (
-          <img src={`${API_URL}${meal.photoUrl}`} alt={meal.name} />
+          <img src={`${API_URL}${meal.photoUrl}`} alt={meal.name} style={{ pointerEvents: 'none' }} />
         ) : (
           <div className="recipe-card-photo-placeholder">🍽️</div>
         )}
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
-          onClick={(e) => e.stopPropagation()}
-          style={{ position: 'absolute', top: '8px', left: '8px', width: '18px', height: '18px', cursor: 'pointer' }}
-          title="Zum Exportieren auswählen"
-        />
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected || false}
+            onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: 'absolute', top: '8px', left: '8px', width: '18px', height: '18px', cursor: 'pointer' }}
+            title="Zum Exportieren auswählen"
+          />
+        )}
       </div>
       <div className="recipe-card-body">
         <h4 className="recipe-card-title">{meal.name}</h4>
@@ -78,32 +88,37 @@ function RecipeCard({
             )}
           </div>
         )}
-        <div style={{ marginTop: '4px' }}>
+        <div style={{ marginTop: 'auto', paddingTop: '4px' }}>
           <RatingStars rating={meal.rating} size={14} onClick={onSetRating} />
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '4px' }}>
-          {meal.ingredients.length} Zutaten • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
-          {(meal.prepTime || meal.totalTime) && (
-            <span style={{ marginLeft: '6px' }}>
-              ⏱ {meal.prepTime && meal.totalTime ? `${meal.prepTime}+${meal.totalTime - meal.prepTime}` : meal.totalTime || meal.prepTime} Min.
-            </span>
-          )}
-        </div>
-        <div className="recipe-card-actions" onClick={(e) => e.stopPropagation()}>
-          {onAddToPlan && (
-            <button className="btn-ghost" onClick={onAddToPlan} style={{ color: 'var(--color-primary)' }} title="Zu Plan hinzufügen">
-              +📋
+          <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '4px' }}>
+            {meal.ingredients.length} Zutaten • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
+            {(meal.prepTime || meal.totalTime) && (
+              <span>
+                {' • '}⏱ {meal.prepTime && meal.totalTime ? `${meal.prepTime}+${meal.totalTime - meal.prepTime}` : meal.totalTime || meal.prepTime} Min.
+              </span>
+            )}
+          </div>
+          <div className="recipe-card-actions" onClick={(e) => e.stopPropagation()}>
+            {onView && (
+              <button className="btn-ghost" onClick={onView} title="Anzeigen">
+                👁️
+              </button>
+            )}
+            {onAddToPlan && (
+              <button className="btn-ghost" onClick={onAddToPlan} style={{ color: 'var(--color-primary)' }} title="Zu Plan hinzufügen">
+                +📋
+              </button>
+            )}
+            <button className="btn-ghost" onClick={onToggleStar} title={meal.starred ? 'Favorit entfernen' : 'Favorit'}>
+              {meal.starred ? '⭐' : '☆'}
             </button>
-          )}
-          <button className="btn-ghost" onClick={onToggleStar} title={meal.starred ? 'Favorit entfernen' : 'Favorit'}>
-            {meal.starred ? '⭐' : '☆'}
-          </button>
-          <button className="btn-ghost" onClick={onEdit} style={{ color: 'var(--accent)' }} title="Bearbeiten">
-            ✏️
-          </button>
-          <button className="btn-ghost" onClick={onDelete} style={{ color: 'var(--color-danger)' }} title="Löschen">
-            🗑️
-          </button>
+            <button className="btn-ghost" onClick={onEdit} style={{ color: 'var(--accent)' }} title="Bearbeiten">
+              ✏️
+            </button>
+            <button className="btn-ghost" onClick={onDelete} style={{ color: 'var(--color-danger)' }} title="Löschen">
+              🗑️
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -227,7 +242,7 @@ export function RecipeDetailModal({
   );
 }
 
-function EditRecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
+export function EditRecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
   const { state, updateMeal, uploadMealPhoto, deleteMealPhoto, downloadMealPhotoFromUrl } = useMealPlan();
   const allUserTags = useMemo(() => state.meals.flatMap(m => m.tags || []), [state.meals]);
 
