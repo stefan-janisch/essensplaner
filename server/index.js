@@ -1,10 +1,20 @@
 import toml from '@iarna/toml';
 import cors from 'cors';
 import express from 'express';
+import session from 'express-session';
+import SqliteStore from 'better-sqlite3-session-store';
+
 import { readFileSync } from 'fs';
 import OpenAI from 'openai';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+
+import db from './db.js';
+import authRoutes from './routes/auth.js';
+import mealsRoutes from './routes/meals.js';
+import plansRoutes from './routes/plans.js';
+import settingsRoutes from './routes/settings.js';
+import { requireAuth } from './middleware/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,6 +22,9 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+
+// Trust proxy (for Nginx)
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors({
@@ -21,10 +34,37 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Session middleware
+const BetterSqlite3Store = SqliteStore(session);
+app.use(session({
+  store: new BetterSqlite3Store({
+    client: db,
+    expired: { clear: true, intervalMs: 900000 } // clean expired sessions every 15 min
+  }),
+  secret: process.env.SESSION_SECRET || 'essensplaner-dev-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+  }
+}));
+
 // Serve static files from dist directory in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(join(__dirname, '..', 'dist')));
 }
+
+// Serve uploaded photos
+app.use('/api/photos', express.static(join(__dirname, 'data', 'photos')));
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/meals', mealsRoutes);
+app.use('/api/plans', plansRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Read OpenAI API key from TOML
 let openaiClient;
@@ -48,7 +88,7 @@ try {
 }
 
 // Parse recipe from URL endpoint
-app.post('/api/parse-recipe-url', async (req, res) => {
+app.post('/api/parse-recipe-url', requireAuth, async (req, res) => {
   try {
     const { url } = req.body;
 
@@ -137,7 +177,7 @@ Regeln:
 });
 
 // Parse ingredients endpoint
-app.post('/api/parse-ingredients', async (req, res) => {
+app.post('/api/parse-ingredients', requireAuth, async (req, res) => {
   try {
     const { ingredientText } = req.body;
 

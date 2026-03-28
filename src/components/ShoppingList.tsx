@@ -5,12 +5,13 @@ import { generateShoppingList } from '../utils/shoppingListAggregator';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export const ShoppingList: React.FC = () => {
-  const { state, renameIngredientInAllMeals } = useMealPlan();
+  const { state, activePlan, renameIngredientInAllMeals } = useMealPlan();
   const [isExpanded, setIsExpanded] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
 
-  const shoppingList = generateShoppingList(state.entries, state.meals);
+  const entries = activePlan?.entries || [];
+  const shoppingList = generateShoppingList(entries, state.meals);
 
   const handlePrint = () => {
     const printWindow = window.open('', '', 'width=800,height=600');

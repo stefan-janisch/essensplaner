@@ -8,6 +8,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const parseRecipeFromURL = async (url: string): Promise<{ name: string; ingredientText: string; recipeText: string; servings: number }> => {
   const response = await fetch(`${API_URL}/api/parse-recipe-url`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -27,6 +28,7 @@ const parseRecipeFromURL = async (url: string): Promise<{ name: string; ingredie
 const parseIngredientsWithAI = async (ingredientText: string): Promise<{ ingredients: Ingredient[]; servings: number | null }> => {
   const response = await fetch(`${API_URL}/api/parse-ingredients`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
     },

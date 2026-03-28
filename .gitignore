@@ -12,6 +12,9 @@ dist/
 # Credentials
 openai_credentials.toml
 
+# Database
+server/data/
+
 # Logs
 *.log
 npm-debug.log*

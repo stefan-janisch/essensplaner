@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
 
 export const DateRangeSelector: React.FC = () => {
-  const { state, initializeDateRange, resetMealPlan } = useMealPlan();
+  const { state, activePlan, createPlan, selectPlan, resetMealPlan } = useMealPlan();
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [planName, setPlanName] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  const handleInitialize = () => {
+  const handleCreate = async () => {
     if (!startDate || !endDate) return;
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -15,22 +17,52 @@ export const DateRangeSelector: React.FC = () => {
       alert('Startdatum muss vor Enddatum liegen');
       return;
     }
-    initializeDateRange(start, end);
+    setCreating(true);
+    try {
+      await createPlan(planName || `Plan ${startDate}`, start, end);
+      setStartDate('');
+      setEndDate('');
+      setPlanName('');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Fehler beim Erstellen');
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const handleReset = () => {
-    resetMealPlan();
-    setStartDate('');
-    setEndDate('');
+  const handleReset = async () => {
+    await resetMealPlan();
     setShowResetConfirm(false);
   };
 
   return (
     <div className="panel" style={{ marginBottom: '24px' }}>
-      <h2 style={{ marginTop: 0, fontSize: '28px', letterSpacing: '-0.5px' }}>Essensplaner</h2>
+      {/* Plan selector when multiple plans exist */}
+      {state.plans.length > 1 && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ fontWeight: 500 }}>Plan:</label>
+          {state.plans.map(plan => (
+            <button
+              key={plan.id}
+              className={`pill ${plan.id === state.activePlanId ? 'pill-active' : ''}`}
+              onClick={() => selectPlan(plan.id)}
+            >
+              {plan.name}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {!state.startDate ? (
+      {!activePlan ? (
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <input
+            className="input"
+            type="text"
+            placeholder="Planname (optional)"
+            value={planName}
+            onChange={e => setPlanName(e.target.value)}
+            style={{ width: '180px' }}
+          />
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             Von:
             <input
@@ -51,27 +83,27 @@ export const DateRangeSelector: React.FC = () => {
           </label>
           <button
             className="btn btn-primary"
-            onClick={handleInitialize}
-            disabled={!startDate || !endDate}
+            onClick={handleCreate}
+            disabled={!startDate || !endDate || creating}
           >
-            Plan erstellen
+            {creating ? '...' : 'Plan erstellen'}
           </button>
         </div>
       ) : (
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
           <div>
-            <strong>{state.startDate}</strong> bis <strong>{state.endDate}</strong>
+            <strong>{activePlan.name}</strong>: {activePlan.startDate} bis {activePlan.endDate}
           </div>
           {!showResetConfirm ? (
             <button
               className="btn btn-danger"
               onClick={() => setShowResetConfirm(true)}
             >
-              Plan zurücksetzen
+              Plan löschen
             </button>
           ) : (
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-danger)', fontWeight: 500 }}>Wirklich zurücksetzen?</span>
+              <span style={{ color: 'var(--color-danger)', fontWeight: 500 }}>Wirklich löschen?</span>
               <button className="btn btn-danger btn-sm" onClick={handleReset}>
                 Ja
               </button>

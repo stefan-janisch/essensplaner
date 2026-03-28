@@ -1,6 +1,6 @@
-- [ ] Add server-side persistence of data via a database
-- [ ] Add user accounts and authentication to allow users to save meal plans and recipes and access them across devices
-- [ ] Implement sharing of meal plans between users
+- [x] Add server-side persistence of data via a database
+- [x] Add user accounts and authentication to allow users to save meal plans and recipes and access them across devices
+- [x] Implement sharing of meal plans between users
 - [ ] Add comprehensive recipe management suite
     - [ ] Add recipe management site to add/edit/delete recipes
     - [ ] Add recipe categories

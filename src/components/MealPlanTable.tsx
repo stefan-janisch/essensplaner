@@ -3,7 +3,7 @@ import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { useMealPlan } from '../context/MealPlanContext';
-import type { MealType, Meal } from '../types/index.js';
+import type { MealType, Meal, MealPlanEntry } from '../types/index.js';
 
 interface RecipeCardModalProps {
   meal: Meal;
@@ -85,12 +85,13 @@ interface MealCellProps {
 }
 
 const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
-  const { state, removeMealFromSlot, toggleSlotEnabled, updateMealServings } = useMealPlan();
+  const { state, activePlan, removeMealFromSlot, toggleSlotEnabled, updateMealServings } = useMealPlan();
   const [isEditing, setIsEditing] = useState(false);
   const [editServings, setEditServings] = useState(2);
   const [showRecipeCard, setShowRecipeCard] = useState(false);
 
-  const entry = state.entries.find(e => e.date === date && e.mealType === mealType);
+  const entries = activePlan?.entries || [];
+  const entry = entries.find(e => e.date === date && e.mealType === mealType);
   const meal = entry?.mealId ? state.meals.find(m => m.id === entry.mealId) : null;
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
@@ -243,9 +244,9 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
 };
 
 export const MealPlanTable: React.FC = () => {
-  const { state, defaultServings, setDefaultServings } = useMealPlan();
+  const { activePlan, defaultServings, setDefaultServings } = useMealPlan();
 
-  if (!state.startDate || !state.endDate) {
+  if (!activePlan) {
     return (
       <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text)' }}>
         Bitte wählen Sie einen Zeitraum aus, um den Plan zu erstellen.
@@ -253,14 +254,16 @@ export const MealPlanTable: React.FC = () => {
     );
   }
 
+  const entries = activePlan.entries || [];
+
   // Group entries by date
-  const dateGroups = state.entries.reduce((acc, entry) => {
+  const dateGroups = entries.reduce((acc, entry) => {
     if (!acc[entry.date]) {
       acc[entry.date] = {};
     }
     acc[entry.date][entry.mealType] = entry;
     return acc;
-  }, {} as Record<string, Record<string, any>>);
+  }, {} as Record<string, Record<string, MealPlanEntry>>);
 
   const dates = Object.keys(dateGroups).sort();
 

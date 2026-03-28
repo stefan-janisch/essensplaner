@@ -1,7 +1,10 @@
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useState } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { MealPlanProvider, useMealPlan } from './context/MealPlanContext';
+import { AuthForm } from './components/AuthForm';
+import { MigrationPrompt } from './components/MigrationPrompt';
 import { DateRangeSelector } from './components/DateRangeSelector';
 import { MealPlanTable } from './components/MealPlanTable';
 import { MealHistory } from './components/MealHistory';
@@ -82,11 +85,58 @@ function MealPlannerContent() {
   );
 }
 
-function App() {
+function AppHeader() {
+  const { user, logout } = useAuth();
+
+  return (
+    <header className="app-header">
+      <h1 className="app-header-title">Essensplaner</h1>
+      <div className="app-header-user">
+        <span>{user?.email}</span>
+        <button className="btn btn-ghost btn-sm" onClick={logout}>Abmelden</button>
+      </div>
+    </header>
+  );
+}
+
+function AuthenticatedApp() {
+  const { hasPendingMigration } = useAuth();
+
+  if (hasPendingMigration) {
+    return <MigrationPrompt />;
+  }
+
   return (
     <MealPlanProvider>
+      <AppHeader />
       <MealPlannerContent />
     </MealPlanProvider>
+  );
+}
+
+function AppGate() {
+  const { isLoading, isAuthenticated } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>Laden...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AuthForm />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppGate />
+    </AuthProvider>
   );
 }
 

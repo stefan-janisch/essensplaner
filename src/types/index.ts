@@ -10,6 +10,10 @@ export type Meal = {
   ingredients: Ingredient[];
   defaultServings: number;
   starred: boolean;
+  rating?: number;
+  category?: string;
+  tags?: string[];
+  photoUrl?: string;
   recipeUrl?: string;
   comment?: string;
   recipeText?: string;
@@ -18,6 +22,7 @@ export type Meal = {
 export type MealType = 'breakfast' | 'lunch' | 'dinner';
 
 export type MealPlanEntry = {
+  id?: number;
   date: string; // ISO format YYYY-MM-DD
   mealType: MealType;
   mealId: string | null;
@@ -25,9 +30,23 @@ export type MealPlanEntry = {
   enabled: boolean;
 }
 
-export type MealPlanState = {
+export type MealPlan = {
+  id: number;
+  name: string;
   startDate: string | null;
   endDate: string | null;
   entries: MealPlanEntry[];
+  createdAt?: string;
+}
+
+export type MealPlanState = {
+  plans: MealPlan[];
+  activePlanId: number | null;
   meals: Meal[];
+}
+
+export type User = {
+  id: number;
+  email: string;
+  defaultServings: number;
 }
