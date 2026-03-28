@@ -17,15 +17,17 @@ export type Meal = {
   recipeUrl?: string;
   comment?: string;
   recipeText?: string;
+  prepTime?: number;
+  totalTime?: number;
 }
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner';
 
 export type MealPlanEntry = {
-  id?: number;
+  id: number;
   date: string; // ISO format YYYY-MM-DD
   mealType: MealType;
-  mealId: string | null;
+  mealId: string;
   servings: number;
   enabled: boolean;
 }

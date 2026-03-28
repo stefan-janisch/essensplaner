@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS meals (
   recipe_url TEXT,
   comment TEXT,
   recipe_text TEXT,
+  prep_time INTEGER,
+  total_time INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_meals_user_id ON meals(user_id);
@@ -39,12 +41,12 @@ CREATE TABLE IF NOT EXISTS meal_plan_entries (
   plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
   meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner')),
-  meal_id TEXT REFERENCES meals(id) ON DELETE SET NULL,
+  meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
   servings INTEGER NOT NULL DEFAULT 2,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  UNIQUE(plan_id, date, meal_type)
+  enabled INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_entries_plan_id ON meal_plan_entries(plan_id);
+CREATE INDEX IF NOT EXISTS idx_entries_slot ON meal_plan_entries(plan_id, date, meal_type);
 
 CREATE TABLE IF NOT EXISTS plan_collaborators (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { format, eachDayOfInterval } from 'date-fns';
+import { format } from 'date-fns';
 import { api } from '../api/client.js';
 import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType } from '../types/index.js';
 
@@ -23,17 +23,25 @@ interface MealPlanContextType {
   refreshPlans: () => Promise<void>;
 
   // Meal CRUD
-  addMeal: (meal: Omit<Meal, 'id'>) => Promise<void>;
+  addMeal: (meal: Omit<Meal, 'id'>) => Promise<Meal | null>;
   updateMeal: (mealId: string, updatedMeal: Omit<Meal, 'id'>) => Promise<void>;
   deleteMeal: (mealId: string) => Promise<void>;
   toggleMealStar: (mealId: string) => void;
 
-  // Slot operations (on active plan)
-  assignMealToSlot: (date: string, mealType: MealType, mealId: string) => void;
-  removeMealFromSlot: (date: string, mealType: MealType) => void;
-  toggleSlotEnabled: (date: string, mealType: MealType) => void;
-  updateMealServings: (date: string, mealType: MealType, servings: number) => void;
-  moveMealBetweenSlots: (fromDate: string, fromMealType: MealType, toDate: string, toMealType: MealType) => void;
+  // Import/Export
+  importMeals: (recipes: Omit<Meal, 'id'>[]) => Promise<{ imported: Meal[]; skipped: string[] }>;
+
+  // Photo management
+  uploadMealPhoto: (mealId: string, file: File) => Promise<string>;
+  deleteMealPhoto: (mealId: string) => Promise<void>;
+  downloadMealPhotoFromUrl: (mealId: string, url: string) => Promise<void>;
+
+  // Entry operations (multi-meal slots)
+  addMealToSlot: (date: string, mealType: MealType, mealId: string) => void;
+  removeEntry: (entryId: number) => void;
+  toggleEntryEnabled: (entryId: number) => void;
+  updateEntryServings: (entryId: number, servings: number) => void;
+  moveEntry: (entryId: number, toDate: string, toMealType: MealType) => void;
   renameIngredientInAllMeals: (oldName: string, newName: string) => void;
 }
 
@@ -97,7 +105,6 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     try {
       await api.put('/api/settings', { defaultServings: servings });
     } catch {
-      // Revert on failure — but this is a minor setting, so just log
       console.error('Failed to save default servings');
     }
   }, []);
@@ -111,28 +118,13 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       endDate: format(endDate, 'yyyy-MM-dd'),
     });
 
-    // Generate entries for all dates
-    const dates = eachDayOfInterval({ start: startDate, end: endDate });
-    const mealTypes: MealType[] = ['breakfast', 'lunch', 'dinner'];
-    const entryData = dates.flatMap(date =>
-      mealTypes.map(mealType => ({
-        date: format(date, 'yyyy-MM-dd'),
-        mealType,
-        mealId: null,
-        servings: defaultServings,
-        enabled: true,
-      }))
-    );
-
-    const entries = await api.put<MealPlanEntry[]>(`/api/plans/${plan.id}/entries`, { entries: entryData });
-
-    const fullPlan: MealPlan = { ...plan, entries };
+    const fullPlan: MealPlan = { ...plan, entries: [] };
     setState(prev => ({
       ...prev,
       plans: [fullPlan, ...prev.plans],
       activePlanId: plan.id,
     }));
-  }, [defaultServings]);
+  }, []);
 
   const selectPlan = useCallback(async (planId: number) => {
     setState(prev => ({ ...prev, activePlanId: planId }));
@@ -186,7 +178,6 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const joinSharedPlan = useCallback(async (token: string): Promise<number> => {
     const result = await api.post<{ planId: number; planName: string }>(`/api/share/${token}/join`);
-    // Reload plans to include the newly joined plan
     const plans = await api.get<MealPlan[]>('/api/plans');
     const planWithEntries = await api.get<MealPlan>(`/api/plans/${result.planId}`);
     setState(prev => ({
@@ -237,12 +228,29 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // --- Meal CRUD ---
 
-  const addMeal = useCallback(async (meal: Omit<Meal, 'id'>) => {
-    const newMeal = await api.post<Meal>('/api/meals', meal);
-    setState(prev => ({
-      ...prev,
-      meals: [...prev.meals, newMeal],
-    }));
+  const addMeal = useCallback(async (meal: Omit<Meal, 'id'>): Promise<Meal | null> => {
+    try {
+      const newMeal = await api.post<Meal>('/api/meals', meal);
+      setState(prev => ({
+        ...prev,
+        meals: [...prev.meals, newMeal],
+      }));
+      return newMeal;
+    } catch (err) {
+      console.error('Add meal failed:', err);
+      return null;
+    }
+  }, []);
+
+  const importMeals = useCallback(async (recipes: Omit<Meal, 'id'>[]): Promise<{ imported: Meal[]; skipped: string[] }> => {
+    const result = await api.post<{ imported: Meal[]; skipped: string[] }>('/api/meals/import', { recipes });
+    if (result.imported.length > 0) {
+      setState(prev => ({
+        ...prev,
+        meals: [...prev.meals, ...result.imported],
+      }));
+    }
+    return result;
   }, []);
 
   const updateMeal = useCallback(async (mealId: string, updatedMeal: Omit<Meal, 'id'>) => {
@@ -264,9 +272,10 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     setState(prev => ({
       ...prev,
       meals: prev.meals.filter(m => m.id !== mealId),
+      // DB cascades deletes, so remove entries referencing this meal
       plans: prev.plans.map(p => ({
         ...p,
-        entries: (p.entries || []).map(e => e.mealId === mealId ? { ...e, mealId: null } : e),
+        entries: (p.entries || []).filter(e => e.mealId !== mealId),
       })),
     }));
   }, []);
@@ -289,65 +298,118 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     });
   }, []);
 
-  // --- Slot operations ---
+  // --- Photo management ---
 
-  const slotUpdate = useCallback((date: string, mealType: MealType, updates: Partial<MealPlanEntry>) => {
+  const updateMealPhotoInState = useCallback((mealId: string, photoUrl: string | undefined) => {
+    // Use a short delay to ensure addMeal's setState has flushed first
+    // (React 18 batches setState calls in async functions)
+    setTimeout(() => {
+      setState(prev => ({
+        ...prev,
+        meals: prev.meals.map(m => m.id === mealId ? { ...m, photoUrl } : m),
+      }));
+    }, 0);
+  }, []);
+
+  const uploadMealPhoto = useCallback(async (mealId: string, file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('photo', file);
+    const result = await api.upload<{ photoUrl: string }>(`/api/meals/${mealId}/photo`, formData);
+    updateMealPhotoInState(mealId, result.photoUrl);
+    return result.photoUrl;
+  }, [updateMealPhotoInState]);
+
+  const deleteMealPhoto = useCallback(async (mealId: string): Promise<void> => {
+    await api.delete(`/api/meals/${mealId}/photo`);
+    setState(prev => ({
+      ...prev,
+      meals: prev.meals.map(m => m.id === mealId ? { ...m, photoUrl: undefined } : m),
+    }));
+  }, []);
+
+  const downloadMealPhotoFromUrl = useCallback(async (mealId: string, url: string): Promise<void> => {
+    try {
+      const result = await api.post<{ photoUrl: string }>(`/api/meals/${mealId}/photo-from-url`, { url });
+      updateMealPhotoInState(mealId, result.photoUrl);
+    } catch (err) {
+      console.error('Download photo from URL failed:', err);
+    }
+  }, [updateMealPhotoInState]);
+
+  // --- Entry operations (multi-meal slots) ---
+
+  const addMealToSlot = useCallback((date: string, mealType: MealType, mealId: string) => {
     if (!state.activePlanId) return;
-    updateActivePlanEntries(entries =>
-      entries.map(e =>
-        e.date === date && e.mealType === mealType ? { ...e, ...updates } : e
-      )
-    );
-    api.put(`/api/plans/${state.activePlanId}/slot`, { date, mealType, ...updates }).catch(err => {
-      console.error('Slot update failed:', err);
+
+    // Optimistic: create temporary entry with negative id
+    const tempId = -Date.now();
+    const newEntry: MealPlanEntry = {
+      id: tempId,
+      date,
+      mealType,
+      mealId,
+      servings: defaultServings,
+      enabled: true,
+    };
+    updateActivePlanEntries(entries => [...entries, newEntry]);
+
+    api.post<MealPlanEntry>(`/api/plans/${state.activePlanId}/entries`, {
+      date, mealType, mealId, servings: defaultServings,
+    }).then(serverEntry => {
+      // Replace temp entry with server entry (which has real id)
+      updateActivePlanEntries(entries =>
+        entries.map(e => e.id === tempId ? serverEntry : e)
+      );
+    }).catch(err => {
+      console.error('Add meal to slot failed:', err);
+      updateActivePlanEntries(entries => entries.filter(e => e.id !== tempId));
+    });
+  }, [state.activePlanId, defaultServings, updateActivePlanEntries]);
+
+  const removeEntry = useCallback((entryId: number) => {
+    if (!state.activePlanId) return;
+    // Optimistic
+    updateActivePlanEntries(entries => entries.filter(e => e.id !== entryId));
+    api.delete(`/api/plans/${state.activePlanId}/entries/${entryId}`).catch(err => {
+      console.error('Remove entry failed:', err);
     });
   }, [state.activePlanId, updateActivePlanEntries]);
 
-  const assignMealToSlot = useCallback((date: string, mealType: MealType, mealId: string) => {
-    slotUpdate(date, mealType, { mealId, servings: defaultServings });
-  }, [slotUpdate, defaultServings]);
-
-  const removeMealFromSlot = useCallback((date: string, mealType: MealType) => {
-    slotUpdate(date, mealType, { mealId: null });
-  }, [slotUpdate]);
-
-  const toggleSlotEnabled = useCallback((date: string, mealType: MealType) => {
-    const entry = activePlan?.entries?.find(e => e.date === date && e.mealType === mealType);
+  const toggleEntryEnabled = useCallback((entryId: number) => {
+    if (!state.activePlanId) return;
+    const entry = activePlan?.entries?.find(e => e.id === entryId);
     if (!entry) return;
     const newEnabled = !entry.enabled;
-    slotUpdate(date, mealType, { enabled: newEnabled, ...(newEnabled ? {} : { mealId: null }) });
-  }, [activePlan, slotUpdate]);
-
-  const updateMealServings = useCallback((date: string, mealType: MealType, servings: number) => {
-    slotUpdate(date, mealType, { servings });
-  }, [slotUpdate]);
-
-  const moveMealBetweenSlots = useCallback((fromDate: string, fromMealType: MealType, toDate: string, toMealType: MealType) => {
-    if (!state.activePlanId || !activePlan?.entries) return;
-
-    const fromEntry = activePlan.entries.find(e => e.date === fromDate && e.mealType === fromMealType);
-    const toEntry = activePlan.entries.find(e => e.date === toDate && e.mealType === toMealType);
-    if (!fromEntry || !toEntry || !fromEntry.mealId) return;
-
-    // Optimistic swap
+    // Optimistic
     updateActivePlanEntries(entries =>
-      entries.map(entry => {
-        if (entry.date === fromDate && entry.mealType === fromMealType) {
-          return { ...entry, mealId: toEntry.mealId, servings: toEntry.mealId ? toEntry.servings : defaultServings };
-        }
-        if (entry.date === toDate && entry.mealType === toMealType) {
-          return { ...entry, mealId: fromEntry.mealId, servings: fromEntry.servings };
-        }
-        return entry;
-      })
+      entries.map(e => e.id === entryId ? { ...e, enabled: newEnabled } : e)
     );
-
-    api.post(`/api/plans/${state.activePlanId}/swap`, {
-      fromDate, fromMealType, toDate, toMealType,
-    }).catch(err => {
-      console.error('Swap failed:', err);
+    api.put(`/api/plans/${state.activePlanId}/entries/${entryId}`, { enabled: newEnabled }).catch(err => {
+      console.error('Toggle entry enabled failed:', err);
     });
-  }, [state.activePlanId, activePlan, defaultServings, updateActivePlanEntries]);
+  }, [state.activePlanId, activePlan, updateActivePlanEntries]);
+
+  const updateEntryServings = useCallback((entryId: number, servings: number) => {
+    if (!state.activePlanId) return;
+    // Optimistic
+    updateActivePlanEntries(entries =>
+      entries.map(e => e.id === entryId ? { ...e, servings } : e)
+    );
+    api.put(`/api/plans/${state.activePlanId}/entries/${entryId}`, { servings }).catch(err => {
+      console.error('Update entry servings failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanEntries]);
+
+  const moveEntry = useCallback((entryId: number, toDate: string, toMealType: MealType) => {
+    if (!state.activePlanId) return;
+    // Optimistic
+    updateActivePlanEntries(entries =>
+      entries.map(e => e.id === entryId ? { ...e, date: toDate, mealType: toMealType } : e)
+    );
+    api.put(`/api/plans/${state.activePlanId}/entries/${entryId}/move`, { toDate, toMealType }).catch(err => {
+      console.error('Move entry failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanEntries]);
 
   const renameIngredientInAllMeals = useCallback((oldName: string, newName: string) => {
     if (!oldName.trim() || !newName.trim() || oldName === newName) return;
@@ -398,15 +460,19 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         leavePlan,
         refreshPlans,
         addMeal,
+        importMeals,
         updateMeal,
         deleteMeal,
         toggleMealStar,
-        assignMealToSlot,
-        removeMealFromSlot,
-        toggleSlotEnabled,
-        updateMealServings,
+        uploadMealPhoto,
+        deleteMealPhoto,
+        downloadMealPhotoFromUrl,
+        addMealToSlot,
+        removeEntry,
+        toggleEntryEnabled,
+        updateEntryServings,
+        moveEntry,
         renameIngredientInAllMeals,
-        moveMealBetweenSlots,
       }}
     >
       {children}

@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { useMealPlan } from '../context/MealPlanContext';
-import type { Meal, Ingredient } from '../types/index.js';
+import { RecipeForm } from './RecipeForm';
+import { getCategoryLabel } from '../constants/categories';
+import { TAG_GROUPS, parseTag } from '../constants/tags';
+import { RecipeDetailModal } from './RecipeManagement';
+import type { Meal } from '../types/index.js';
+import type { RecipeFormData } from './RecipeForm';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 interface DraggableMealCardProps {
   meal: Meal;
@@ -10,6 +17,7 @@ interface DraggableMealCardProps {
 
 const DraggableMealCard: React.FC<DraggableMealCardProps> = ({ meal, onEdit }) => {
   const { toggleMealStar, deleteMeal } = useMealPlan();
+  const [showRecipe, setShowRecipe] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: meal.id,
     data: { meal },
@@ -42,12 +50,31 @@ const DraggableMealCard: React.FC<DraggableMealCardProps> = ({ meal, onEdit }) =
         alignItems: 'center',
       }}
     >
-      <div style={{ flex: 1, cursor: isDragging ? 'grabbing' : 'grab' }} {...listeners} {...attributes}>
-        <div style={{ fontWeight: 'bold', marginBottom: '3px', color: 'var(--text-h)' }}>{meal.name}</div>
-        <div style={{ fontSize: '12px', color: 'var(--text)' }}>
-          {meal.ingredients.length} Zutaten • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {meal.photoUrl && (
+          <img
+            src={`${API_URL}${meal.photoUrl}`}
+            alt=""
+            onClick={() => setShowRecipe(true)}
+            style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
+            title="Rezept anzeigen"
+          />
+        )}
+        <div style={{ cursor: isDragging ? 'grabbing' : 'grab', flex: 1 }} {...listeners} {...attributes}>
+          <div style={{ fontWeight: 'bold', marginBottom: '3px', color: 'var(--text-h)' }}>{meal.name}</div>
+          <div style={{ fontSize: '12px', color: 'var(--text)' }}>
+            {meal.ingredients.length} Zutaten • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
+            {meal.category && (
+              <span style={{ marginLeft: '6px', color: 'var(--accent)' }}>
+                {getCategoryLabel(meal.category)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
+      {showRecipe && (
+        <RecipeDetailModal meal={meal} onClose={() => setShowRecipe(false)} />
+      )}
       <div style={{ display: 'flex', gap: '2px' }}>
         <button
           className="btn-ghost"
@@ -87,215 +114,96 @@ const DraggableMealCard: React.FC<DraggableMealCardProps> = ({ meal, onEdit }) =
 interface EditMealModalProps {
   meal: Meal;
   onClose: () => void;
-  onSave: (meal: Omit<Meal, 'id'>) => void;
 }
 
-const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose, onSave }) => {
-  const [name, setName] = useState(meal.name);
-  const [recipeUrl, setRecipeUrl] = useState(meal.recipeUrl || '');
-  const [servings, setServings] = useState(meal.defaultServings);
-  const [comment, setComment] = useState(meal.comment || '');
-  const [recipeText, setRecipeText] = useState(meal.recipeText || '');
-  const [ingredients, setIngredients] = useState<Ingredient[]>(meal.ingredients);
+const EditMealModal: React.FC<EditMealModalProps> = ({ meal, onClose }) => {
+  const { state, updateMeal, uploadMealPhoto, deleteMealPhoto, downloadMealPhotoFromUrl } = useMealPlan();
+  const allUserTags = React.useMemo(() => state.meals.flatMap(m => m.tags || []), [state.meals]);
 
-  const handleAddIngredient = () => {
-    setIngredients([...ingredients, { name: '', amount: 0, unit: '' }]);
-  };
-
-  const handleRemoveIngredient = (index: number) => {
-    setIngredients(ingredients.filter((_, i) => i !== index));
-  };
-
-  const handleIngredientChange = (index: number, field: keyof Ingredient, value: string | number) => {
-    const updated = [...ingredients];
-    updated[index] = { ...updated[index], [field]: value };
-    setIngredients(updated);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!name.trim()) {
-      alert('Bitte geben Sie einen Namen ein');
-      return;
+  const handleSave = async (data: RecipeFormData) => {
+    await updateMeal(meal.id, data.meal);
+    if (data.deletePhoto) {
+      await deleteMealPhoto(meal.id);
+    } else if (data.photoFile) {
+      await uploadMealPhoto(meal.id, data.photoFile);
+    } else if (data.remotePhotoUrl) {
+      await downloadMealPhotoFromUrl(meal.id, data.remotePhotoUrl);
     }
-
-    const validIngredients = ingredients.filter(ing => ing.name.trim() && (ing.amount >= 0));
-
-    if (validIngredients.length === 0) {
-      alert('Bitte fügen Sie mindestens eine Zutat hinzu');
-      return;
-    }
-
-    onSave({
-      name: name.trim(),
-      ingredients: validIngredients,
-      defaultServings: servings,
-      starred: meal.starred,
-      recipeUrl: recipeUrl || undefined,
-      comment: comment.trim() || undefined,
-      recipeText: recipeText.trim() || undefined,
-    });
-
     onClose();
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div
         className="modal-content"
-        style={{ maxWidth: '600px', width: '90%' }}
+        style={{ maxWidth: '600px', width: '90%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <form onSubmit={handleSubmit}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h3 style={{ margin: 0 }}>Rezept bearbeiten</h3>
-            <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>
-              ×
-            </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid var(--border-light)', flexShrink: 0 }}>
+          <h3 style={{ margin: 0 }}>Rezept bearbeiten</h3>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button type="submit" form="edit-meal-form" className="btn-ghost" style={{ fontSize: '20px' }} title="Speichern">💾</button>
+            <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>×</button>
           </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
-            <input
-              className="input"
-              type="url"
-              value={recipeUrl}
-              onChange={(e) => setRecipeUrl(e.target.value)}
-              placeholder="https://..."
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px' }}>Name:*</label>
-            <input
-              className="input"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px' }}>Portionen:*</label>
-            <input
-              className="input"
-              type="number"
-              min="1"
-              value={servings}
-              onChange={(e) => setServings(parseInt(e.target.value) || 1)}
-              required
-              style={{ width: '100px' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px' }}>Kommentar:</label>
-            <textarea
-              className="textarea"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Optionale Notizen zum Rezept..."
-              rows={3}
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px' }}>Zubereitung:</label>
-            <textarea
-              className="textarea"
-              value={recipeText}
-              onChange={(e) => setRecipeText(e.target.value)}
-              placeholder="Optionale Zubereitungsschritte..."
-              rows={6}
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px' }}>Zutaten:*</label>
-            {ingredients.map((ing, index) => (
-              <div key={index} style={{ display: 'flex', gap: '5px', marginBottom: '5px' }}>
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="Zutat"
-                  value={ing.name}
-                  onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
-                  style={{
-                    flex: 2,
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {})
-                  }}
-                />
-                <input
-                  className="input"
-                  type="number"
-                  placeholder="Menge"
-                  value={ing.amount || ''}
-                  onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
-                  style={{
-                    flex: 1,
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {})
-                  }}
-                />
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="Einheit"
-                  value={ing.unit}
-                  onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
-                  style={{
-                    flex: 1,
-                    ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {})
-                  }}
-                />
-                {ingredients.length > 1 && (
-                  <button
-                    type="button"
-                    className="btn btn-danger btn-sm"
-                    onClick={() => handleRemoveIngredient(index)}
-                  >
-                    ✗
-                  </button>
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              className="btn btn-muted btn-sm"
-              onClick={handleAddIngredient}
-              style={{ marginTop: '5px' }}
-            >
-              + Zutat hinzufügen
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button type="submit" className="btn btn-primary">
-              Speichern
-            </button>
-            <button type="button" className="btn btn-muted" onClick={onClose}>
-              Abbrechen
-            </button>
-          </div>
-        </form>
+        </div>
+        <div style={{ overflow: 'auto', paddingTop: '16px' }}>
+          <RecipeForm
+            formId="edit-meal-form"
+            initialData={meal}
+            allUserTags={allUserTags}
+            onSubmit={handleSave}
+            onCancel={onClose}
+            submitLabel="Speichern"
+            showUrlParsing={true}
+          />
+        </div>
       </div>
     </div>
   );
 };
 
 export const MealHistory: React.FC = () => {
-  const { state, updateMeal } = useMealPlan();
+  const { state } = useMealPlan();
   const [filter, setFilter] = useState<'all' | 'starred'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+
+  const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length;
+
+  // Collect tag values by group from all meals
+  const tagValuesByGroup = React.useMemo(() => {
+    const map: Record<string, Set<string>> = {};
+    state.meals.forEach(m => m.tags?.forEach(t => {
+      const p = parseTag(t);
+      if (p) {
+        if (!map[p.key]) map[p.key] = new Set();
+        map[p.key].add(p.value);
+      }
+    }));
+    return map;
+  }, [state.meals]);
+
+  const hasAnyTags = Object.keys(tagValuesByGroup).length > 0;
 
   const filteredMeals = state.meals.filter(meal => {
     if (filter === 'starred' && !meal.starred) return false;
+    if (categoryFilter && meal.category !== categoryFilter) return false;
+    if (tagFilter.length > 0) {
+      const filtersByGroup: Record<string, string[]> = {};
+      tagFilter.forEach(t => {
+        const p = parseTag(t);
+        if (p) {
+          if (!filtersByGroup[p.key]) filtersByGroup[p.key] = [];
+          filtersByGroup[p.key].push(t);
+        }
+      });
+      for (const groupTags of Object.values(filtersByGroup)) {
+        if (!groupTags.some(t => meal.tags?.includes(t))) return false;
+      }
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return meal.name.toLowerCase().includes(q) ||
@@ -311,11 +219,14 @@ export const MealHistory: React.FC = () => {
     return a.name.localeCompare(b.name);
   });
 
+  // Collect unique categories
+  const categories = [...new Set(state.meals.map(m => m.category).filter(Boolean))] as string[];
+
   return (
     <div className="panel" style={{ height: '100%' }}>
       <h3 style={{ marginTop: 0, color: 'var(--text-h)' }}>Rezepte</h3>
 
-      <div style={{ marginBottom: '15px', display: 'flex', gap: '8px' }}>
+      <div style={{ marginBottom: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <button
           className={`pill ${filter === 'all' ? 'pill-active' : ''}`}
           onClick={() => setFilter('all')}
@@ -336,8 +247,76 @@ export const MealHistory: React.FC = () => {
         placeholder="Rezept suchen..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        style={{ width: '100%', marginBottom: '12px' }}
+        style={{ width: '100%', marginBottom: '8px' }}
       />
+
+      {/* Expandable filters */}
+      {(categories.length > 0 || hasAnyTags) && (
+        <div style={{ marginBottom: '10px' }}>
+          <button
+            className="btn-ghost"
+            onClick={() => setShowFilters(!showFilters)}
+            style={{ fontSize: '12px', padding: '2px 6px', color: 'var(--accent)', width: '100%', textAlign: 'left' }}
+          >
+            {showFilters ? '▾' : '▸'} Filter{activeFilterCount > 0 ? ` (${activeFilterCount} aktiv)` : ''}
+          </button>
+
+          {showFilters && (
+            <div style={{ marginTop: '6px', padding: '8px', background: 'var(--surface-0)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+              {categories.length > 0 && (
+                <select
+                  className="input"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  style={{ width: '100%', marginBottom: '8px', fontSize: '12px', padding: '4px 8px' }}
+                >
+                  <option value="">Alle Kategorien</option>
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{getCategoryLabel(cat) || cat}</option>
+                  ))}
+                </select>
+              )}
+
+              {TAG_GROUPS.map(group => {
+                const values = tagValuesByGroup[group.key];
+                if (!values || values.size === 0) return null;
+                return (
+                  <div key={group.key} style={{ marginBottom: '6px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text)', fontWeight: 500 }}>{group.label}:</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '2px' }}>
+                      {[...values].sort().map(value => {
+                        const tag = `${group.key}:${value}`;
+                        return (
+                          <button
+                            key={tag}
+                            className={`pill ${tagFilter.includes(tag) ? 'pill-active' : ''}`}
+                            onClick={() => setTagFilter(prev =>
+                              prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+                            )}
+                            style={{ fontSize: '12px', padding: '2px 8px' }}
+                          >
+                            {value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {activeFilterCount > 0 && (
+                <button
+                  className="btn-ghost"
+                  onClick={() => { setCategoryFilter(''); setTagFilter([]); }}
+                  style={{ fontSize: '11px', color: 'var(--color-danger)', marginTop: '4px' }}
+                >
+                  Filter zurücksetzen
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ maxHeight: 'calc(100vh - 400px)', overflowY: 'auto' }}>
         {sortedMeals.length === 0 ? (
@@ -359,10 +338,6 @@ export const MealHistory: React.FC = () => {
         <EditMealModal
           meal={editingMeal}
           onClose={() => setEditingMeal(null)}
-          onSave={(updatedMeal) => {
-            updateMeal(editingMeal.id, updatedMeal);
-            setEditingMeal(null);
-          }}
         />
       )}
     </div>

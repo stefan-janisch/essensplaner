@@ -91,11 +91,14 @@ try {
 // Parse recipe from URL endpoint
 app.post('/api/parse-recipe-url', requireAuth, async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, existingTags } = req.body;
 
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' });
     }
+
+    // Collect existing tags for AI context
+    const existingTagsList = Array.isArray(existingTags) ? [...new Set(existingTags)].sort() : [];
 
     console.log('Fetching recipe from URL:', url);
 
@@ -115,9 +118,9 @@ app.post('/api/parse-recipe-url', requireAuth, async (req, res) => {
         {
           role: 'system',
           content: `Du bist ein Assistent, der Rezepte aus HTML-Seiten extrahiert.
-Extrahiere GENAU SO WIE ANGEGEBEN den Rezeptnamen, die Zutatenliste, die Zubereitung und die Anzahl der Portionen.
 
-Gib das Ergebnis als JSON-Objekt zurück: { "name": string, "ingredientText": string, "recipeText": string, "servings": number }
+Gib das Ergebnis als JSON-Objekt zurück:
+{ "name": string, "ingredientText": string, "recipeText": string, "servings": number, "photoUrl": string | null, "category": string | null, "tags": string[], "prepTime": number | null, "totalTime": number | null }
 
 Regeln:
 - "name" ist der Name des Rezepts
@@ -130,9 +133,26 @@ Regeln:
   - Falls es nummerierte Schritte gibt, behalte die Nummerierung bei
   - Trenne Schritte mit \\n\\n (zwei Zeilenumbrüche)
 - "servings" ist die Anzahl der Portionen (z.B. "für 4 Personen" → 4)
-- Falls keine Portionsangabe gefunden wird, verwende 2 als Standard
+  - Falls keine Portionsangabe gefunden wird, verwende 2 als Standard
+- "photoUrl" ist die URL des Hauptfotos des Rezepts
+  - Suche nach og:image Meta-Tag, schema.org image Property, oder das größte/prominenteste Bild im Hauptinhalt
+  - Gib die vollständige absolute URL zurück (nicht relative Pfade)
+  - Falls kein passendes Foto gefunden wird, verwende null
+- "category" ist die Kategorie, einer von: hauptgericht, beilage, vorspeise, suppe, salat, dessert, snack, fruehstueck, getraenk, brot_gebaeck, sauce_dip, sonstiges. Falls unklar, verwende null
+- "tags" ist ein Array von strukturierten Tags im Format "schlüssel:wert". Verwende bevorzugt bereits existierende Tags des Benutzers (siehe unten). Erstelle nur neue Tags wenn keiner der existierenden passt.
+  Erlaubte Schlüssel und Beispielwerte:
+  - küche: italienisch, französisch, asiatisch, mexikanisch, indisch, griechisch, türkisch, deutsch, österreichisch, ungarisch, russisch, japanisch, thailändisch, orientalisch, mediterran, amerikanisch
+  - schwierigkeit: leicht, mittel, anspruchsvoll
+  - ernährung: vegetarisch, vegan, glutenfrei, laktosefrei, low-carb, high-protein (nur wenn zutreffend)
+  - eigenschaft: schnell, günstig, kinderfreundlich, meal-prep, einfrierbar, one-pot, kalorienarm, gesund, haute-cuisine (nur wenn zutreffend)
+  - Verwende nur Tags die eindeutig auf das Rezept zutreffen
+- "prepTime" ist die aktive Zeit in Minuten (Hands-on-Zeit, aktives Arbeiten), null falls nicht angegeben
+- "totalTime" ist die Gesamtzeit in Minuten (inkl. Kochen/Backen), null falls nicht angegeben
 - Ignoriere Werbung, Navigation und Kommentare
-- Antworte NUR mit dem JSON-Objekt, ohne zusätzlichen Text`
+- Antworte NUR mit dem JSON-Objekt, ohne zusätzlichen Text${existingTagsList.length > 0 ? `
+
+Bereits existierende Tags des Benutzers (bevorzugt diese verwenden):
+${existingTagsList.join(', ')}` : ''}`
         },
         {
           role: 'user',
@@ -154,19 +174,28 @@ Regeln:
       return res.status(500).json({ error: 'Fehler beim Parsen der KI-Antwort' });
     }
 
-    // Validate the structure
+    // Validate the structure — if no ingredients found, return a helpful error
     if (!parsed.ingredientText || typeof parsed.ingredientText !== 'string') {
-      return res.status(500).json({ error: 'Ungültiges Format der KI-Antwort' });
+      console.error('No ingredients in AI response. Parsed keys:', Object.keys(parsed), 'Name:', parsed.name || '(none)');
+      return res.status(400).json({ error: parsed.name
+        ? `Keine Zutaten auf der Seite gefunden. Möglicherweise wird die Seite dynamisch geladen und kann nicht geparst werden.`
+        : `Die Seite konnte nicht geparst werden. Möglicherweise ist sie hinter einem Login oder wird dynamisch geladen.`
+      });
     }
 
     const name = String(parsed.name || '');
     const ingredientText = String(parsed.ingredientText || '');
     const recipeText = String(parsed.recipeText || '');
     const servings = parsed.servings ? Number(parsed.servings) : 2;
+    const photoUrl = parsed.photoUrl || null;
+    const category = parsed.category || null;
+    const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+    const prepTime = parsed.prepTime ? Number(parsed.prepTime) : null;
+    const totalTime = parsed.totalTime ? Number(parsed.totalTime) : null;
 
-    console.log(`✓ Parsed recipe: ${name} for ${servings} servings`);
+    console.log(`✓ Parsed recipe: ${name} for ${servings} servings${photoUrl ? ' (with photo)' : ''} [${tags.length} tags]`);
 
-    res.json({ name, ingredientText, recipeText, servings });
+    res.json({ name, ingredientText, recipeText, servings, photoUrl, category, tags, prepTime, totalTime });
 
   } catch (error) {
     console.error('Error parsing recipe from URL:', error);

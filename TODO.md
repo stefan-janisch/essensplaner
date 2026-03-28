@@ -1,10 +1,18 @@
 - [x] Add server-side persistence of data via a database
 - [x] Add user accounts and authentication to allow users to save meal plans and recipes and access them across devices
 - [x] Implement sharing of meal plans between users
-- [ ] Add a comprehensive recipe management suite
-    - [ ] Add recipe management site to add/edit/delete recipes. Adding should use the same form as "Rezept hinzufügen" in the meal plan. Don't code it twice.
-    - [ ] Add recipe categories
-    - [ ] Add recipe tags
-    - [ ] Add recipe search and filter functionality
-    - [ ] Add recipe star ratings
-    - [ ] Add photos to meals and let LLM identify suitable photo when web parsing recipes
+- [x] Add a comprehensive recipe management suite
+    - [x] Add recipe management site to add/edit/delete recipes. Adding should use the same form as "Rezept hinzufügen" in the meal plan. Don't code it twice.
+    - [x] Add recipe categories
+    - [x] Add recipe tags
+    - [x] Add recipe search and filter functionality
+    - [x] Add recipe star ratings
+    - [x] Add photos to meals and let LLM identify suitable photo when web parsing recipes
+- [x] Add recipe sharing - this should copy the recipe to the other user's DB and not be collaborative.
+- [x] Add preparation time and total cooking time to recipes
+- [x] AI parsing should include setting a category and tags and cooking time. We should discuss a proper tagging system first. Ideas/examples:
+    - küche:französisch
+    - schwierigkeit:leicht
+    - Do you have more ideas on helpful tags?
+
+- [ ] Everytime I refresh the page, it switches

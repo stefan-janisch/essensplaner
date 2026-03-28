@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { dirname, extname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { unlinkSync, existsSync } from 'fs';
+import { unlinkSync, existsSync, writeFileSync } from 'fs';
 import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 
@@ -54,6 +54,8 @@ function rowToMeal(row) {
     recipeUrl: row.recipe_url,
     comment: row.comment,
     recipeText: row.recipe_text,
+    prepTime: row.prep_time,
+    totalTime: row.total_time,
   };
 }
 
@@ -66,7 +68,7 @@ router.get('/', (req, res) => {
 // Create meal
 router.post('/', (req, res) => {
   try {
-    const { name, ingredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText } = req.body;
+    const { name, ingredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name ist erforderlich' });
@@ -75,8 +77,8 @@ router.post('/', (req, res) => {
     const id = generateMealId();
 
     db.prepare(`
-      INSERT INTO meals (id, user_id, name, ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO meals (id, user_id, name, ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       req.userId,
@@ -89,7 +91,9 @@ router.post('/', (req, res) => {
       tags ? JSON.stringify(tags) : null,
       recipeUrl || null,
       comment || null,
-      recipeText || null
+      recipeText || null,
+      prepTime || null,
+      totalTime || null
     );
 
     const row = db.prepare('SELECT * FROM meals WHERE id = ?').get(id);
@@ -108,10 +112,10 @@ router.put('/:id', (req, res) => {
       return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
     }
 
-    const { name, ingredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText } = req.body;
+    const { name, ingredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
 
     db.prepare(`
-      UPDATE meals SET name = ?, ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?
+      UPDATE meals SET name = ?, ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?
       WHERE id = ? AND user_id = ?
     `).run(
       name ?? meal.name,
@@ -124,6 +128,8 @@ router.put('/:id', (req, res) => {
       recipeUrl !== undefined ? recipeUrl : meal.recipe_url,
       comment !== undefined ? comment : meal.comment,
       recipeText !== undefined ? recipeText : meal.recipe_text,
+      prepTime !== undefined ? (prepTime || null) : meal.prep_time,
+      totalTime !== undefined ? (totalTime || null) : meal.total_time,
       req.params.id,
       req.userId
     );
@@ -253,6 +259,141 @@ router.delete('/:id/photo', (req, res) => {
 
   db.prepare('UPDATE meals SET photo_url = NULL WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// Import recipes from export file
+router.post('/import', async (req, res) => {
+  try {
+    const { recipes } = req.body;
+    if (!Array.isArray(recipes) || recipes.length === 0) {
+      return res.status(400).json({ error: 'recipes Array ist erforderlich' });
+    }
+
+    // Get existing meal names for duplicate check
+    const existingNames = new Set(
+      db.prepare('SELECT name FROM meals WHERE user_id = ?').all(req.userId).map(r => r.name.toLowerCase())
+    );
+
+    const createdMeals = [];
+    const skippedNames = [];
+
+    for (const recipe of recipes) {
+      if (!recipe.name) continue;
+
+      // Skip duplicates by name
+      if (existingNames.has(recipe.name.toLowerCase())) {
+        skippedNames.push(recipe.name);
+        continue;
+      }
+
+      const id = generateMealId();
+
+      db.prepare(`
+        INSERT INTO meals (id, user_id, name, ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        req.userId,
+        recipe.name,
+        JSON.stringify(recipe.ingredients || []),
+        recipe.defaultServings || 2,
+        0,
+        recipe.rating || null,
+        recipe.category || null,
+        recipe.tags ? JSON.stringify(recipe.tags) : null,
+        recipe.recipeUrl || null,
+        recipe.comment || null,
+        recipe.recipeText || null,
+        recipe.prepTime || null,
+        recipe.totalTime || null
+      );
+
+      // Try to download photo if URL provided
+      if (recipe.photoUrl) {
+        try {
+          const photoResponse = await fetch(recipe.photoUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Essensplaner/1.0)' },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (photoResponse.ok) {
+            const contentType = photoResponse.headers.get('content-type') || '';
+            let ext = '.jpg';
+            if (contentType.includes('png')) ext = '.png';
+            else if (contentType.includes('webp')) ext = '.webp';
+
+            const buffer = Buffer.from(await photoResponse.arrayBuffer());
+            const filename = `${id}${ext}`;
+            const filePath = join(__dirname, '..', 'data', 'photos', filename);
+            writeFileSync(filePath, buffer);
+
+            const photoUrl = `/api/photos/${filename}`;
+            db.prepare('UPDATE meals SET photo_url = ? WHERE id = ?').run(photoUrl, id);
+          }
+        } catch {
+          // Photo download failed, continue without photo
+        }
+      }
+
+      const row = db.prepare('SELECT * FROM meals WHERE id = ?').get(id);
+      createdMeals.push(rowToMeal(row));
+    }
+
+    res.status(201).json({ imported: createdMeals, skipped: skippedNames });
+  } catch (err) {
+    console.error('Import recipes error:', err);
+    res.status(500).json({ error: 'Import fehlgeschlagen' });
+  }
+});
+
+// Download photo from URL and save locally
+router.post('/:id/photo-from-url', async (req, res) => {
+  try {
+    const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+    if (!meal) {
+      return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
+    }
+
+    const { url } = req.body;
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL ist erforderlich' });
+    }
+
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Essensplaner/1.0)' },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      return res.status(400).json({ error: 'Foto konnte nicht heruntergeladen werden' });
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    let ext = '.jpg';
+    if (contentType.includes('png')) ext = '.png';
+    else if (contentType.includes('webp')) ext = '.webp';
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const filename = `${req.params.id}${ext}`;
+    const filePath = join(__dirname, '..', 'data', 'photos', filename);
+
+    // Delete old photo if exists
+    if (meal.photo_url) {
+      const oldPath = join(__dirname, '..', 'data', 'photos', meal.photo_url.split('/').pop());
+      if (existsSync(oldPath)) {
+        try { unlinkSync(oldPath); } catch { /* ignore */ }
+      }
+    }
+
+    writeFileSync(filePath, buffer);
+
+    const photoUrl = `/api/photos/${filename}`;
+    db.prepare('UPDATE meals SET photo_url = ? WHERE id = ?').run(photoUrl, req.params.id);
+
+    res.json({ photoUrl });
+  } catch (err) {
+    console.error('Download photo from URL error:', err);
+    res.status(500).json({ error: 'Foto konnte nicht heruntergeladen werden' });
+  }
 });
 
 export default router;

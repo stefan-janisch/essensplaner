@@ -11,13 +11,14 @@ import { MealHistory } from './components/MealHistory';
 import { AddMealForm } from './components/AddMealForm';
 import { ShoppingList } from './components/ShoppingList';
 import { MealPlanOverview } from './components/MealPlanOverview';
+import { RecipeManagement } from './components/RecipeManagement';
 import type { Meal, MealType } from './types/index.js';
 import './App.css';
 
-type AppView = 'overview' | 'planner';
+type AppView = 'overview' | 'planner' | 'recipes';
 
 function MealPlannerContent({ onBack }: { onBack: () => void }) {
-  const { assignMealToSlot, moveMealBetweenSlots } = useMealPlan();
+  const { addMealToSlot, moveEntry } = useMealPlan();
   const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -37,16 +38,16 @@ function MealPlannerContent({ onBack }: { onBack: () => void }) {
     const dropData = over.data.current as { date: string; mealType: string } | undefined;
     if (!dropData) return;
 
-    const sourceData = active.data.current as { sourceDate?: string; sourceMealType?: string } | undefined;
+    const sourceData = active.data.current as { entryId?: number; sourceDate?: string; sourceMealType?: string } | undefined;
 
-    if (sourceData?.sourceDate && sourceData?.sourceMealType) {
-      // Cell-to-cell move (swap)
+    if (sourceData?.entryId) {
+      // Entry drag from cell → move to target slot
       if (sourceData.sourceDate === dropData.date && sourceData.sourceMealType === dropData.mealType) return;
-      moveMealBetweenSlots(sourceData.sourceDate, sourceData.sourceMealType as MealType, dropData.date, dropData.mealType as MealType);
+      moveEntry(sourceData.entryId, dropData.date, dropData.mealType as MealType);
     } else {
-      // Drag from history sidebar
+      // Drag from history sidebar → add to slot
       const mealId = active.id as string;
-      assignMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
+      addMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
     }
   };
 
@@ -101,11 +102,18 @@ function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNaviga
         >
           Essensplaner
         </h1>
-        {currentView === 'planner' && (
-          <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('overview')}>
-            Alle Pläne
-          </button>
-        )}
+        <button
+          className={`btn btn-ghost btn-sm ${currentView === 'overview' || currentView === 'planner' ? 'btn-nav-active' : ''}`}
+          onClick={() => onNavigate('overview')}
+        >
+          Pläne
+        </button>
+        <button
+          className={`btn btn-ghost btn-sm ${currentView === 'recipes' ? 'btn-nav-active' : ''}`}
+          onClick={() => onNavigate('recipes')}
+        >
+          Rezepte
+        </button>
       </div>
       <div className="app-header-user">
         <span>{user?.email}</span>
@@ -201,6 +209,8 @@ function AuthenticatedAppInner() {
       )}
       {view === 'overview' ? (
         <MealPlanOverview onOpenPlan={() => setView('planner')} />
+      ) : view === 'recipes' ? (
+        <RecipeManagement />
       ) : (
         <MealPlannerContent onBack={() => setView('overview')} />
       )}

@@ -43,6 +43,8 @@ function rowToMeal(row) {
     recipeUrl: row.recipe_url,
     comment: row.comment,
     recipeText: row.recipe_text,
+    prepTime: row.prep_time,
+    totalTime: row.total_time,
   };
 }
 
@@ -184,146 +186,107 @@ router.delete('/:planId', (req, res) => {
   res.json({ ok: true });
 });
 
-// Bulk upsert entries
-router.put('/:planId/entries', (req, res) => {
+// Add meal to slot
+router.post('/:planId/entries', (req, res) => {
   const plan = getPlanForUser(req.params.planId, req.userId);
   if (!plan) {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
   try {
-    const { entries } = req.body;
-    if (!Array.isArray(entries)) {
-      return res.status(400).json({ error: 'entries Array ist erforderlich' });
+    const { date, mealType, mealId, servings } = req.body;
+    if (!date || !mealType || !mealId) {
+      return res.status(400).json({ error: 'date, mealType und mealId sind erforderlich' });
     }
 
-    const upsert = db.prepare(`
-      INSERT INTO meal_plan_entries (plan_id, date, meal_type, meal_id, servings, enabled)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(plan_id, date, meal_type) DO UPDATE SET
-        meal_id = excluded.meal_id,
-        servings = excluded.servings,
-        enabled = excluded.enabled
-    `);
+    const result = db.prepare(
+      'INSERT INTO meal_plan_entries (plan_id, date, meal_type, meal_id, servings) VALUES (?, ?, ?, ?, ?)'
+    ).run(plan.id, date, mealType, mealId, servings ?? 2);
 
-    const bulkUpsert = db.transaction(() => {
-      for (const entry of entries) {
-        upsert.run(
-          plan.id,
-          entry.date,
-          entry.mealType,
-          entry.mealId || null,
-          entry.servings ?? 2,
-          entry.enabled != null ? (entry.enabled ? 1 : 0) : 1
-        );
-      }
-    });
-
-    bulkUpsert();
-
-    const rows = db.prepare(
-      'SELECT * FROM meal_plan_entries WHERE plan_id = ? ORDER BY date, meal_type'
-    ).all(plan.id);
-
-    res.json(rows.map(rowToEntry));
+    const row = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(rowToEntry(row));
   } catch (err) {
-    console.error('Bulk upsert error:', err);
-    res.status(500).json({ error: 'Einträge konnten nicht aktualisiert werden' });
+    console.error('Add entry error:', err);
+    res.status(500).json({ error: 'Eintrag konnte nicht erstellt werden' });
   }
 });
 
-// Update single slot
-router.put('/:planId/slot', (req, res) => {
+// Update entry
+router.put('/:planId/entries/:entryId', (req, res) => {
   const plan = getPlanForUser(req.params.planId, req.userId);
   if (!plan) {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
   try {
-    const { date, mealType, mealId, servings, enabled } = req.body;
-
-    if (!date || !mealType) {
-      return res.status(400).json({ error: 'date und mealType sind erforderlich' });
+    const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ?')
+      .get(req.params.entryId, plan.id);
+    if (!entry) {
+      return res.status(404).json({ error: 'Eintrag nicht gefunden' });
     }
 
-    db.prepare(`
-      INSERT INTO meal_plan_entries (plan_id, date, meal_type, meal_id, servings, enabled)
-      VALUES (@planId, @date, @mealType, @insertMealId, @insertServings, @insertEnabled)
-      ON CONFLICT(plan_id, date, meal_type) DO UPDATE SET
-        meal_id = CASE WHEN @hasMealId THEN @updateMealId ELSE meal_id END,
-        servings = CASE WHEN @hasServings THEN @updateServings ELSE servings END,
-        enabled = CASE WHEN @hasEnabled THEN @updateEnabled ELSE enabled END
-    `).run({
-      planId: plan.id,
-      date,
-      mealType,
-      insertMealId: mealId !== undefined ? mealId : null,
-      insertServings: servings ?? 2,
-      insertEnabled: enabled != null ? (enabled ? 1 : 0) : 1,
-      hasMealId: mealId !== undefined ? 1 : 0,
-      updateMealId: mealId !== undefined ? mealId : null,
-      hasServings: servings !== undefined ? 1 : 0,
-      updateServings: servings ?? 2,
-      hasEnabled: enabled !== undefined ? 1 : 0,
-      updateEnabled: enabled != null ? (enabled ? 1 : 0) : 1,
-    });
+    const { servings, enabled } = req.body;
+    db.prepare(
+      'UPDATE meal_plan_entries SET servings = ?, enabled = ? WHERE id = ?'
+    ).run(
+      servings !== undefined ? servings : entry.servings,
+      enabled !== undefined ? (enabled ? 1 : 0) : entry.enabled,
+      entry.id
+    );
 
-    const row = db.prepare(
-      'SELECT * FROM meal_plan_entries WHERE plan_id = ? AND date = ? AND meal_type = ?'
-    ).get(plan.id, date, mealType);
-
-    res.json(row ? rowToEntry(row) : null);
+    const row = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ?').get(entry.id);
+    res.json(rowToEntry(row));
   } catch (err) {
-    console.error('Update slot error:', err);
-    res.status(500).json({ error: 'Slot konnte nicht aktualisiert werden' });
+    console.error('Update entry error:', err);
+    res.status(500).json({ error: 'Eintrag konnte nicht aktualisiert werden' });
   }
 });
 
-// Swap two slots
-router.post('/:planId/swap', (req, res) => {
+// Delete entry
+router.delete('/:planId/entries/:entryId', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) {
+    return res.status(404).json({ error: 'Plan nicht gefunden' });
+  }
+
+  const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ?')
+    .get(req.params.entryId, plan.id);
+  if (!entry) {
+    return res.status(404).json({ error: 'Eintrag nicht gefunden' });
+  }
+
+  db.prepare('DELETE FROM meal_plan_entries WHERE id = ?').run(entry.id);
+  res.json({ ok: true });
+});
+
+// Move entry to another slot
+router.put('/:planId/entries/:entryId/move', (req, res) => {
   const plan = getPlanForUser(req.params.planId, req.userId);
   if (!plan) {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
   try {
-    const { fromDate, fromMealType, toDate, toMealType } = req.body;
-
-    const swap = db.transaction(() => {
-      const from = db.prepare(
-        'SELECT * FROM meal_plan_entries WHERE plan_id = ? AND date = ? AND meal_type = ?'
-      ).get(plan.id, fromDate, fromMealType);
-
-      const to = db.prepare(
-        'SELECT * FROM meal_plan_entries WHERE plan_id = ? AND date = ? AND meal_type = ?'
-      ).get(plan.id, toDate, toMealType);
-
-      if (!from || !to) return null;
-
-      db.prepare(
-        'UPDATE meal_plan_entries SET meal_id = ?, servings = ? WHERE id = ?'
-      ).run(to.meal_id, to.servings, from.id);
-
-      db.prepare(
-        'UPDATE meal_plan_entries SET meal_id = ?, servings = ? WHERE id = ?'
-      ).run(from.meal_id, from.servings, to.id);
-
-      return true;
-    });
-
-    const result = swap();
-    if (!result) {
-      return res.status(404).json({ error: 'Slots nicht gefunden' });
+    const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ?')
+      .get(req.params.entryId, plan.id);
+    if (!entry) {
+      return res.status(404).json({ error: 'Eintrag nicht gefunden' });
     }
 
-    const entries = db.prepare(
-      'SELECT * FROM meal_plan_entries WHERE plan_id = ? ORDER BY date, meal_type'
-    ).all(plan.id);
+    const { toDate, toMealType } = req.body;
+    if (!toDate || !toMealType) {
+      return res.status(400).json({ error: 'toDate und toMealType sind erforderlich' });
+    }
 
-    res.json(entries.map(rowToEntry));
+    db.prepare(
+      'UPDATE meal_plan_entries SET date = ?, meal_type = ? WHERE id = ?'
+    ).run(toDate, toMealType, entry.id);
+
+    const row = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ?').get(entry.id);
+    res.json(rowToEntry(row));
   } catch (err) {
-    console.error('Swap error:', err);
-    res.status(500).json({ error: 'Tausch fehlgeschlagen' });
+    console.error('Move entry error:', err);
+    res.status(500).json({ error: 'Eintrag konnte nicht verschoben werden' });
   }
 });
 
