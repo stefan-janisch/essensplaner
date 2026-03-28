@@ -85,14 +85,14 @@ interface MealCellProps {
 }
 
 const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
-  const { state, activePlan, removeMealFromSlot, toggleSlotEnabled, updateMealServings } = useMealPlan();
+  const { allMealsForActivePlan, activePlan, removeMealFromSlot, toggleSlotEnabled, updateMealServings } = useMealPlan();
   const [isEditing, setIsEditing] = useState(false);
   const [editServings, setEditServings] = useState(2);
   const [showRecipeCard, setShowRecipeCard] = useState(false);
 
   const entries = activePlan?.entries || [];
   const entry = entries.find(e => e.date === date && e.mealType === mealType);
-  const meal = entry?.mealId ? state.meals.find(m => m.id === entry.mealId) : null;
+  const meal = entry?.mealId ? allMealsForActivePlan.find(m => m.id === entry.mealId) : null;
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `${date}-${mealType}`,
@@ -244,7 +244,7 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
 };
 
 export const MealPlanTable: React.FC = () => {
-  const { activePlan, defaultServings, setDefaultServings } = useMealPlan();
+  const { activePlan } = useMealPlan();
 
   if (!activePlan) {
     return (
@@ -269,17 +269,6 @@ export const MealPlanTable: React.FC = () => {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px', marginBottom: '12px' }}>
-        <label>Standard-Portionen:</label>
-        <input
-          className="input"
-          type="number"
-          min="1"
-          value={defaultServings}
-          onChange={(e) => setDefaultServings(Math.max(1, parseInt(e.target.value) || 1))}
-          style={{ width: '60px', textAlign: 'center' }}
-        />
-      </div>
       <table className="meal-table">
         <thead>
           <tr>

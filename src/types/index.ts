@@ -30,6 +30,11 @@ export type MealPlanEntry = {
   enabled: boolean;
 }
 
+export type Collaborator = {
+  id: number;
+  email: string;
+}
+
 export type MealPlan = {
   id: number;
   name: string;
@@ -37,6 +42,10 @@ export type MealPlan = {
   endDate: string | null;
   entries: MealPlanEntry[];
   createdAt?: string;
+  isOwner?: boolean;
+  ownerEmail?: string | null;
+  collaborators?: Collaborator[];
+  sharedMeals?: Meal[];
 }
 
 export type MealPlanState = {

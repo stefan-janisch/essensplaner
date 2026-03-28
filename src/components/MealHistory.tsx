@@ -339,7 +339,7 @@ export const MealHistory: React.FC = () => {
         style={{ width: '100%', marginBottom: '12px' }}
       />
 
-      <div style={{ maxHeight: 'calc(100vh - 350px)', overflowY: 'auto' }}>
+      <div style={{ maxHeight: 'calc(100vh - 400px)', overflowY: 'auto' }}>
         {sortedMeals.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--text)', padding: '20px' }}>
             {searchQuery.trim() ? 'Keine Treffer' : filter === 'starred' ? 'Keine Favoriten vorhanden' : 'Keine Rezepte vorhanden'}

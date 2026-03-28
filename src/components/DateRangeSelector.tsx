@@ -1,119 +1,54 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
 
-export const DateRangeSelector: React.FC = () => {
-  const { state, activePlan, createPlan, selectPlan, resetMealPlan } = useMealPlan();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [planName, setPlanName] = useState('');
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [creating, setCreating] = useState(false);
+interface DateRangeSelectorProps {
+  onBack: () => void;
+}
 
-  const handleCreate = async () => {
-    if (!startDate || !endDate) return;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    if (start > end) {
-      alert('Startdatum muss vor Enddatum liegen');
-      return;
-    }
-    setCreating(true);
-    try {
-      await createPlan(planName || `Plan ${startDate}`, start, end);
-      setStartDate('');
-      setEndDate('');
-      setPlanName('');
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Fehler beim Erstellen');
-    } finally {
-      setCreating(false);
-    }
-  };
+function formatDateDE(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-');
+  return `${d}.${m}.${y.slice(2)}`;
+}
 
-  const handleReset = async () => {
-    await resetMealPlan();
-    setShowResetConfirm(false);
-  };
+export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) => {
+  const { activePlan, defaultServings, setDefaultServings } = useMealPlan();
+
+  if (!activePlan) return null;
 
   return (
-    <div className="panel" style={{ marginBottom: '24px' }}>
-      {/* Plan selector when multiple plans exist */}
-      {state.plans.length > 1 && (
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ fontWeight: 500 }}>Plan:</label>
-          {state.plans.map(plan => (
-            <button
-              key={plan.id}
-              className={`pill ${plan.id === state.activePlanId ? 'pill-active' : ''}`}
-              onClick={() => selectPlan(plan.id)}
-            >
-              {plan.name}
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="panel" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Left: back */}
+      <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ flexShrink: 0 }}>
+        &larr; Alle Pläne
+      </button>
 
-      {!activePlan ? (
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <input
-            className="input"
-            type="text"
-            placeholder="Planname (optional)"
-            value={planName}
-            onChange={e => setPlanName(e.target.value)}
-            style={{ width: '180px' }}
-          />
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            Von:
-            <input
-              className="input"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            Bis:
-            <input
-              className="input"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </label>
-          <button
-            className="btn btn-primary"
-            onClick={handleCreate}
-            disabled={!startDate || !endDate || creating}
-          >
-            {creating ? '...' : 'Plan erstellen'}
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <div>
-            <strong>{activePlan.name}</strong>: {activePlan.startDate} bis {activePlan.endDate}
-          </div>
-          {!showResetConfirm ? (
-            <button
-              className="btn btn-danger"
-              onClick={() => setShowResetConfirm(true)}
-            >
-              Plan löschen
-            </button>
-          ) : (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ color: 'var(--color-danger)', fontWeight: 500 }}>Wirklich löschen?</span>
-              <button className="btn btn-danger btn-sm" onClick={handleReset}>
-                Ja
-              </button>
-              <button className="btn btn-muted btn-sm" onClick={() => setShowResetConfirm(false)}>
-                Abbrechen
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Center: title + date range */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', textAlign: 'center' }}>
+        <strong style={{ fontSize: '16px', color: 'var(--text-h)' }}>{activePlan.name}</strong>
+        {activePlan.startDate && activePlan.endDate && (
+          <span style={{ color: 'var(--text)', fontSize: '14px' }}>
+            {formatDateDE(activePlan.startDate)} — {formatDateDE(activePlan.endDate)}
+          </span>
+        )}
+        {activePlan.isOwner === false && activePlan.ownerEmail && (
+          <span style={{ fontSize: '12px', color: 'var(--accent)', padding: '2px 8px', borderRadius: '10px', background: 'var(--accent-bg)' }}>
+            Geteilt von {activePlan.ownerEmail}
+          </span>
+        )}
+      </div>
+
+      {/* Right: servings */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>Standard-Portionen:</label>
+        <input
+          className="input"
+          type="number"
+          min="1"
+          value={defaultServings}
+          onChange={(e) => setDefaultServings(Math.max(1, parseInt(e.target.value) || 1))}
+          style={{ width: '56px', textAlign: 'center', padding: '4px 8px' }}
+        />
+      </div>
     </div>
   );
 };

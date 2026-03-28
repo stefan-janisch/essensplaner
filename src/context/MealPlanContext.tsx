@@ -6,6 +6,7 @@ import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType } from '../
 interface MealPlanContextType {
   state: MealPlanState;
   activePlan: MealPlan | null;
+  allMealsForActivePlan: Meal[];
   isLoading: boolean;
   error: string | null;
   defaultServings: number;
@@ -17,6 +18,9 @@ interface MealPlanContextType {
   deletePlan: (planId: number) => Promise<void>;
   renamePlan: (planId: number, name: string) => Promise<void>;
   resetMealPlan: () => Promise<void>;
+  joinSharedPlan: (token: string) => Promise<number>;
+  leavePlan: (planId: number) => Promise<void>;
+  refreshPlans: () => Promise<void>;
 
   // Meal CRUD
   addMeal: (meal: Omit<Meal, 'id'>) => Promise<void>;
@@ -79,6 +83,14 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   const activePlan = state.plans.find(p => p.id === state.activePlanId) ?? null;
+
+  // Merge user's own meals with shared meals from active plan for lookups
+  const allMealsForActivePlan = React.useMemo(() => {
+    const shared = activePlan?.sharedMeals || [];
+    if (shared.length === 0) return state.meals;
+    const ownIds = new Set(state.meals.map(m => m.id));
+    return [...state.meals, ...shared.filter(m => !ownIds.has(m.id))];
+  }, [state.meals, activePlan?.sharedMeals]);
 
   const setDefaultServings = useCallback(async (servings: number) => {
     setDefaultServingsLocal(servings);
@@ -171,6 +183,44 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       activePlanId: null,
     }));
   }, [state.activePlanId]);
+
+  const joinSharedPlan = useCallback(async (token: string): Promise<number> => {
+    const result = await api.post<{ planId: number; planName: string }>(`/api/share/${token}/join`);
+    // Reload plans to include the newly joined plan
+    const plans = await api.get<MealPlan[]>('/api/plans');
+    const planWithEntries = await api.get<MealPlan>(`/api/plans/${result.planId}`);
+    setState(prev => ({
+      ...prev,
+      plans: plans.map(p => p.id === result.planId ? planWithEntries : p),
+      activePlanId: result.planId,
+    }));
+    return result.planId;
+  }, []);
+
+  const leavePlan = useCallback(async (planId: number) => {
+    await api.delete(`/api/plans/${planId}`);
+    setState(prev => {
+      const remaining = prev.plans.filter(p => p.id !== planId);
+      return {
+        ...prev,
+        plans: remaining,
+        activePlanId: prev.activePlanId === planId
+          ? (remaining.length > 0 ? remaining[0].id : null)
+          : prev.activePlanId,
+      };
+    });
+  }, []);
+
+  const refreshPlans = useCallback(async () => {
+    const plans = await api.get<MealPlan[]>('/api/plans');
+    setState(prev => ({
+      ...prev,
+      plans: plans.map(p => {
+        const existing = prev.plans.find(ep => ep.id === p.id);
+        return existing ? { ...p, entries: existing.entries, sharedMeals: existing.sharedMeals, collaborators: existing.collaborators } : p;
+      }),
+    }));
+  }, []);
 
   // --- Helper to update entries in active plan ---
 
@@ -334,6 +384,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       value={{
         state: compatState,
         activePlan,
+        allMealsForActivePlan,
         isLoading,
         error,
         defaultServings,
@@ -343,6 +394,9 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         deletePlan,
         renamePlan,
         resetMealPlan,
+        joinSharedPlan,
+        leavePlan,
+        refreshPlans,
         addMeal,
         updateMeal,
         deleteMeal,

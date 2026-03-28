@@ -1,6 +1,6 @@
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MealPlanProvider, useMealPlan } from './context/MealPlanContext';
 import { AuthForm } from './components/AuthForm';
@@ -10,10 +10,13 @@ import { MealPlanTable } from './components/MealPlanTable';
 import { MealHistory } from './components/MealHistory';
 import { AddMealForm } from './components/AddMealForm';
 import { ShoppingList } from './components/ShoppingList';
+import { MealPlanOverview } from './components/MealPlanOverview';
 import type { Meal, MealType } from './types/index.js';
 import './App.css';
 
-function MealPlannerContent() {
+type AppView = 'overview' | 'planner';
+
+function MealPlannerContent({ onBack }: { onBack: () => void }) {
   const { assignMealToSlot, moveMealBetweenSlots } = useMealPlan();
   const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
 
@@ -50,7 +53,7 @@ function MealPlannerContent() {
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
-        <DateRangeSelector />
+        <DateRangeSelector onBack={onBack} />
 
         <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
           <div>
@@ -85,17 +88,123 @@ function MealPlannerContent() {
   );
 }
 
-function AppHeader() {
+function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNavigate: (view: AppView) => void }) {
   const { user, logout } = useAuth();
 
   return (
     <header className="app-header">
-      <h1 className="app-header-title">Essensplaner</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <h1
+          className="app-header-title"
+          style={{ cursor: 'pointer' }}
+          onClick={() => onNavigate('overview')}
+        >
+          Essensplaner
+        </h1>
+        {currentView === 'planner' && (
+          <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('overview')}>
+            Alle Pläne
+          </button>
+        )}
+      </div>
       <div className="app-header-user">
         <span>{user?.email}</span>
         <button className="btn btn-ghost btn-sm" onClick={logout}>Abmelden</button>
       </div>
     </header>
+  );
+}
+
+function getInitialShareStatus(): 'idle' | 'joining' {
+  const params = new URLSearchParams(window.location.search);
+  return (params.get('share') || params.get('joined')) ? 'joining' : 'idle';
+}
+
+function useShareJoin(onJoined: () => void) {
+  const { joinSharedPlan, selectPlan, isLoading } = useMealPlan();
+  const [status, setStatus] = useState<'idle' | 'joining' | 'error'>(getInitialShareStatus);
+  const [errorMsg, setErrorMsg] = useState('');
+  const handled = useRef(false);
+  const pendingJoinedId = useRef<number | null>(null);
+
+  // Read query params once on first render
+  const paramsRef = useRef(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shareToken = params.get('share');
+    const joinedPlanId = params.get('joined');
+
+    if (shareToken || joinedPlanId) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('share');
+      url.searchParams.delete('joined');
+      url.searchParams.delete('shareError');
+      window.history.replaceState({}, '', url.pathname);
+    }
+
+    return { shareToken, joinedPlanId };
+  });
+
+  // Handle ?share= token (API join)
+  useEffect(() => {
+    if (handled.current) return;
+    const { shareToken } = paramsRef.current();
+    if (!shareToken) return;
+
+    handled.current = true;
+    joinSharedPlan(shareToken)
+      .then(() => { onJoined(); })
+      .catch(err => { setStatus('error'); setErrorMsg(err instanceof Error ? err.message : 'Beitritt fehlgeschlagen'); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle ?joined= (server already joined, wait for initial load then select plan)
+  useEffect(() => {
+    if (handled.current) return;
+    const { joinedPlanId } = paramsRef.current();
+    if (!joinedPlanId) return;
+
+    if (pendingJoinedId.current === null) {
+      pendingJoinedId.current = Number(joinedPlanId);
+    }
+
+    if (!isLoading && pendingJoinedId.current !== null) {
+      handled.current = true;
+      selectPlan(pendingJoinedId.current);
+      onJoined();
+    }
+  }, [isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { status, errorMsg };
+}
+
+function AuthenticatedAppInner() {
+  const [view, setView] = useState<AppView>('overview');
+  const { status, errorMsg } = useShareJoin(() => setView('planner'));
+
+  if (status === 'joining') {
+    return (
+      <>
+        <AppHeader currentView={view} onNavigate={setView} />
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+          <div>Plan wird beigetreten...</div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <AppHeader currentView={view} onNavigate={setView} />
+      {status === 'error' && (
+        <div style={{ padding: '24px 32px', textAlign: 'center' }}>
+          <div className="auth-error" style={{ display: 'inline-block' }}>{errorMsg}</div>
+        </div>
+      )}
+      {view === 'overview' ? (
+        <MealPlanOverview onOpenPlan={() => setView('planner')} />
+      ) : (
+        <MealPlannerContent onBack={() => setView('overview')} />
+      )}
+    </>
   );
 }
 
@@ -108,8 +217,7 @@ function AuthenticatedApp() {
 
   return (
     <MealPlanProvider>
-      <AppHeader />
-      <MealPlannerContent />
+      <AuthenticatedAppInner />
     </MealPlanProvider>
   );
 }

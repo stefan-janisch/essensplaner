@@ -4,6 +4,7 @@ import express from 'express';
 import session from 'express-session';
 import SqliteStore from 'better-sqlite3-session-store';
 
+import crypto from 'crypto';
 import { readFileSync } from 'fs';
 import OpenAI from 'openai';
 import { dirname, join } from 'path';
@@ -390,6 +391,87 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// --- Share link routes ---
+
+// GET /share/:token — server-side join flow
+app.get('/share/:token', (req, res) => {
+  const share = db.prepare('SELECT * FROM plan_shares WHERE token = ?').get(req.params.token);
+
+  if (!share) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.redirect('/?shareError=notfound');
+    }
+    return res.status(404).json({ error: 'Link ungültig oder abgelaufen' });
+  }
+
+  if (share.expires_at && new Date(share.expires_at) < new Date()) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.redirect('/?shareError=expired');
+    }
+    return res.status(410).json({ error: 'Link abgelaufen' });
+  }
+
+  // Not logged in → redirect to frontend with share param
+  if (!req.session || !req.session.userId) {
+    return res.redirect(`/?share=${req.params.token}`);
+  }
+
+  // Already logged in → add as collaborator and redirect
+  const userId = req.session.userId;
+  const plan = db.prepare('SELECT * FROM meal_plans WHERE id = ?').get(share.plan_id);
+
+  if (!plan) {
+    return res.redirect('/?shareError=notfound');
+  }
+
+  // Don't add owner as collaborator
+  if (plan.user_id !== userId) {
+    db.prepare(
+      'INSERT OR IGNORE INTO plan_collaborators (plan_id, user_id) VALUES (?, ?)'
+    ).run(plan.id, userId);
+  }
+
+  res.redirect(`/?joined=${plan.id}`);
+});
+
+// POST /api/share/:token/join — API-based join (for frontend after login)
+app.post('/api/share/:token/join', requireAuth, (req, res) => {
+  try {
+    const share = db.prepare('SELECT * FROM plan_shares WHERE token = ?').get(req.params.token);
+
+    if (!share) {
+      return res.status(404).json({ error: 'Link ungültig oder abgelaufen' });
+    }
+
+    if (share.expires_at && new Date(share.expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Link abgelaufen' });
+    }
+
+    const plan = db.prepare('SELECT * FROM meal_plans WHERE id = ?').get(share.plan_id);
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan nicht gefunden' });
+    }
+
+    // Don't add owner as collaborator
+    if (plan.user_id !== req.userId) {
+      db.prepare(
+        'INSERT OR IGNORE INTO plan_collaborators (plan_id, user_id) VALUES (?, ?)'
+      ).run(plan.id, req.userId);
+    }
+
+    res.json({ planId: plan.id, planName: plan.name });
+  } catch (err) {
+    console.error('Join error:', err);
+    res.status(500).json({ error: 'Beitritt fehlgeschlagen' });
+  }
+});
+
+// SPA catch-all (production only, must be after all API routes)
+if (process.env.NODE_ENV === 'production') {
+  app.get('/{*splat}', (_req, res) => {
+    res.sendFile(join(__dirname, '..', 'dist', 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);

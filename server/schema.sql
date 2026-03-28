@@ -45,3 +45,23 @@ CREATE TABLE IF NOT EXISTS meal_plan_entries (
   UNIQUE(plan_id, date, meal_type)
 );
 CREATE INDEX IF NOT EXISTS idx_entries_plan_id ON meal_plan_entries(plan_id);
+
+CREATE TABLE IF NOT EXISTS plan_collaborators (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(plan_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_plan_collaborators_user ON plan_collaborators(user_id);
+CREATE INDEX IF NOT EXISTS idx_plan_collaborators_plan ON plan_collaborators(plan_id);
+
+CREATE TABLE IF NOT EXISTS plan_shares (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_plan_shares_token ON plan_shares(token);
