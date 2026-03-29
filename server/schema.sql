@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS meal_plans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  plan_type TEXT NOT NULL DEFAULT 'weekly' CHECK(plan_type IN ('weekly', 'menu')),
   start_date TEXT,
   end_date TEXT,
   archived INTEGER NOT NULL DEFAULT 0,
@@ -41,7 +42,7 @@ CREATE TABLE IF NOT EXISTS meal_plan_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
-  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'misc')),
+  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'misc', 'food')),
   meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
   servings INTEGER NOT NULL DEFAULT 2,
   enabled INTEGER NOT NULL DEFAULT 1
@@ -52,13 +53,23 @@ CREATE INDEX IF NOT EXISTS idx_entries_slot ON meal_plan_entries(plan_id, date, 
 CREATE TABLE IF NOT EXISTS plan_extras (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
-  category TEXT NOT NULL CHECK(category IN ('snacks', 'drinks', 'misc')),
+  category TEXT NOT NULL CHECK(category IN ('snacks', 'drinks', 'misc', 'food')),
   name TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 1,
   unit TEXT NOT NULL DEFAULT 'Stück',
-  enabled INTEGER NOT NULL DEFAULT 1
+  enabled INTEGER NOT NULL DEFAULT 1,
+  course_id INTEGER REFERENCES menu_courses(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_extras_plan_id ON plan_extras(plan_id);
+
+CREATE TABLE IF NOT EXISTS menu_courses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  comment TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_menu_courses_plan_id ON menu_courses(plan_id);
 
 CREATE TABLE IF NOT EXISTS plan_collaborators (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

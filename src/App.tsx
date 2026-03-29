@@ -7,14 +7,15 @@ import { AuthForm } from './components/AuthForm';
 import { MigrationPrompt } from './components/MigrationPrompt';
 import { DateRangeSelector } from './components/DateRangeSelector';
 import { MealPlanTable } from './components/MealPlanTable';
+import { MenuPlanTable } from './components/MenuPlanTable';
 import { MealHistory } from './components/MealHistory';
 import { ShoppingList } from './components/ShoppingList';
 import { MealPlanOverview } from './components/MealPlanOverview';
 import { RecipeManagement } from './components/RecipeManagement';
-import type { Meal, MealType } from './types/index.js';
+import type { Meal, MealType, PlanType } from './types/index.js';
 import './App.css';
 
-type AppView = 'overview' | 'planner' | 'recipes';
+type AppView = 'overview' | 'planner' | 'recipes' | 'menuplan';
 
 function MealPlannerContent({ onBack }: { onBack: () => void }) {
   const { addMealToSlot, moveEntry } = useMealPlan();
@@ -87,6 +88,56 @@ function MealPlannerContent({ onBack }: { onBack: () => void }) {
   );
 }
 
+function MenuPlanContent({ onBack }: { onBack: () => void }) {
+  const { addMealToSlot, moveEntry } = useMealPlan();
+  const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const meal = event.active.data.current?.meal;
+    if (meal) setActiveMeal(meal);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveMeal(null);
+    const { active, over } = event;
+    if (!over) return;
+    const dropData = over.data.current as { date: string; mealType: string } | undefined;
+    if (!dropData) return;
+    const sourceData = active.data.current as { entryId?: number; sourceDate?: string; sourceMealType?: string } | undefined;
+    if (sourceData?.entryId) {
+      if (sourceData.sourceDate === dropData.date && sourceData.sourceMealType === dropData.mealType) return;
+      moveEntry(sourceData.entryId, dropData.date, dropData.mealType as MealType);
+    } else {
+      const mealId = active.id as string;
+      addMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
+    }
+  };
+
+  return (
+    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
+        <DateRangeSelector onBack={onBack} />
+        <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
+          <div>
+            <MenuPlanTable />
+            <ShoppingList />
+          </div>
+          <div style={{ position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 200px)', overflow: 'hidden' }}>
+            <MealHistory />
+          </div>
+        </div>
+      </div>
+      <DragOverlay>
+        {activeMeal ? (
+          <div style={{ padding: '12px 16px', backgroundColor: 'var(--surface-0)', border: '2px solid var(--accent)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', cursor: 'grabbing' }}>
+            <div style={{ fontWeight: 'bold', color: 'var(--text-h)' }}>{activeMeal.name}</div>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
 function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNavigate: (view: AppView) => void }) {
   const { user, logout } = useAuth();
 
@@ -101,7 +152,7 @@ function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNaviga
           Essensplaner
         </h1>
         <button
-          className={`btn btn-ghost btn-sm ${currentView === 'overview' || currentView === 'planner' ? 'btn-nav-active' : ''}`}
+          className={`btn btn-ghost btn-sm ${currentView === 'overview' || currentView === 'planner' || currentView === 'menuplan' ? 'btn-nav-active' : ''}`}
           onClick={() => onNavigate('overview')}
         >
           Pläne
@@ -184,6 +235,10 @@ function useShareJoin(onJoined: () => void) {
 
 function parseHash(hash: string): { view: AppView; planId?: number } {
   if (hash === '#rezepte') return { view: 'recipes' };
+  if (hash.startsWith('#menuplan')) {
+    const id = parseInt(hash.split('/')[1]);
+    return { view: 'menuplan', planId: id || undefined };
+  }
   if (hash.startsWith('#planer')) {
     const id = parseInt(hash.split('/')[1]);
     return { view: 'planner', planId: id || undefined };
@@ -198,14 +253,16 @@ function AuthenticatedAppInner() {
   const setView = useCallback((v: AppView, planId?: number) => {
     setViewState(v);
     if (v === 'recipes') window.location.hash = '#rezepte';
+    else if (v === 'menuplan' && planId) window.location.hash = `#menuplan/${planId}`;
+    else if (v === 'menuplan') window.location.hash = '#menuplan';
     else if (v === 'planner' && planId) window.location.hash = `#planer/${planId}`;
     else if (v === 'planner') window.location.hash = '#planer';
     else window.location.hash = '#plaene';
   }, []);
 
-  const openPlan = useCallback((planId: number) => {
+  const openPlan = useCallback((planId: number, planType?: PlanType) => {
     selectPlan(planId);
-    setView('planner', planId);
+    setView(planType === 'menu' ? 'menuplan' : 'planner', planId);
   }, [selectPlan, setView]);
 
   // Listen for browser back/forward
@@ -244,6 +301,8 @@ function AuthenticatedAppInner() {
         <MealPlanOverview onOpenPlan={openPlan} />
       ) : view === 'recipes' ? (
         <RecipeManagement />
+      ) : view === 'menuplan' ? (
+        <MenuPlanContent onBack={() => setView('overview')} />
       ) : (
         <MealPlannerContent onBack={() => setView('overview')} />
       )}

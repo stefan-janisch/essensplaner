@@ -46,7 +46,7 @@
 
 - [x] KI-gestütztes Beautifying und cleaning (zB alt texte von bildern/bilder) von eingefügten Rezepttexten
 
-- [ ] Funktion für Menüplanung mit user-defined anzahl der gänge plus getränkebegleitung (abgeleitet von meal plan, aber mit gängen statt tagen)
+- [x] Funktion für Menüplanung mit user-defined anzahl der gänge plus getränkebegleitung (abgeleitet von meal plan, aber mit gängen statt tagen)
 
 - [x] Zusätzliches Feld im mealPlan für Sonstiges (Snacks, Getränke, Kaffee etc.)
 

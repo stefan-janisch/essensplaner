@@ -524,6 +524,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
               <input className="input" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
                 style={{ flex: 0, width: '65px', minWidth: '65px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
               <input className="input" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
+                onFocus={(e) => { const el = e.target; setTimeout(() => el.select()); }}
                 style={{ flex: 0, width: '55px', minWidth: '55px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {}) }} />
               {ingredients.length > 1 && (
                 <button type="button" className="btn btn-danger btn-sm" onClick={() => handleRemoveIngredient(index)} style={{ padding: '2px 6px' }}>✗</button>
@@ -552,6 +553,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
                 if (shoppingIngredients.length === 0) setShoppingIngredients([{ name: '', amount: 0, unit: e.target.value }]);
                 else handleShoppingIngredientChange(index, 'unit', e.target.value);
               }}
+                onFocus={(e) => { const el = e.target; setTimeout(() => el.select()); }}
                 style={{ flex: 0, width: '55px', minWidth: '55px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {}) }} />
               {shoppingIngredients.length > 1 && (
                 <button type="button" className="btn btn-danger btn-sm" onClick={() => handleRemoveShoppingIngredient(index)} style={{ padding: '2px 6px' }}>✗</button>

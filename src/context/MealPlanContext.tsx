@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
-import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem } from '../types/index.js';
+import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType } from '../types/index.js';
 
 interface MealPlanContextType {
   state: MealPlanState;
@@ -13,7 +13,7 @@ interface MealPlanContextType {
   setDefaultServings: (servings: number) => void;
 
   // Plan management
-  createPlan: (name: string, startDate: Date, endDate: Date) => Promise<number>;
+  createPlan: (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => Promise<number>;
   selectPlan: (planId: number) => void;
   deletePlan: (planId: number) => Promise<void>;
   renamePlan: (planId: number, name: string) => Promise<void>;
@@ -46,9 +46,14 @@ interface MealPlanContextType {
   renameIngredientInAllMeals: (oldName: string, newName: string) => void;
 
   // Extras (free-form items)
-  addExtra: (category: ExtraItem['category'], name: string, amount: number, unit: string) => void;
+  addExtra: (category: ExtraItem['category'], name: string, amount: number, unit: string, courseId?: number) => void;
   updateExtra: (extraId: number, updates: Partial<Pick<ExtraItem, 'name' | 'amount' | 'unit' | 'enabled'>>) => void;
   removeExtra: (extraId: number) => void;
+
+  // Menu courses
+  addCourse: () => void;
+  updateCourse: (courseId: number, updates: Partial<Pick<MenuCourse, 'label' | 'comment'>>) => void;
+  removeCourse: (courseId: number) => void;
 }
 
 const MealPlanContext = createContext<MealPlanContextType | undefined>(undefined);
@@ -75,7 +80,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         setDefaultServingsLocal(settings.defaultServings);
 
         // Check URL hash for a specific plan ID
-        const hashMatch = window.location.hash.match(/^#planer\/(\d+)/);
+        const hashMatch = window.location.hash.match(/^#(?:planer|menuplan)\/(\d+)/);
         const hashPlanId = hashMatch ? parseInt(hashMatch[1]) : null;
         const initialPlanId = (hashPlanId && plans.some(p => p.id === hashPlanId))
           ? hashPlanId
@@ -125,14 +130,15 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // --- Plan management ---
 
-  const createPlan = useCallback(async (name: string, startDate: Date, endDate: Date) => {
-    const plan = await api.post<MealPlan>('/api/plans', {
-      name,
-      startDate: format(startDate, 'yyyy-MM-dd'),
-      endDate: format(endDate, 'yyyy-MM-dd'),
-    });
+  const createPlan = useCallback(async (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => {
+    const body: Record<string, unknown> = { name };
+    if (planType) body.planType = planType;
+    if (startDate) body.startDate = format(startDate, 'yyyy-MM-dd');
+    if (endDate) body.endDate = format(endDate, 'yyyy-MM-dd');
 
-    const fullPlan: MealPlan = { ...plan, entries: [], extras: [] };
+    const plan = await api.post<MealPlan>('/api/plans', body);
+
+    const fullPlan: MealPlan = { ...plan, entries: [], extras: [], courses: plan.courses || [] };
     setState(prev => ({
       ...prev,
       plans: [fullPlan, ...prev.plans],
@@ -452,14 +458,14 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // --- Extras (free-form items) ---
 
-  const addExtra = useCallback((category: ExtraItem['category'], name: string, amount: number, unit: string) => {
+  const addExtra = useCallback((category: ExtraItem['category'], name: string, amount: number, unit: string, courseId?: number) => {
     if (!state.activePlanId) return;
 
     const tempId = -Date.now();
-    const newExtra: ExtraItem = { id: tempId, category, name, amount, unit, enabled: true };
+    const newExtra: ExtraItem = { id: tempId, category, name, amount, unit, enabled: true, courseId };
     updateActivePlanExtras(extras => [...extras, newExtra]);
 
-    api.post<ExtraItem>(`/api/plans/${state.activePlanId}/extras`, { category, name, amount, unit })
+    api.post<ExtraItem>(`/api/plans/${state.activePlanId}/extras`, { category, name, amount, unit, courseId })
       .then(serverExtra => {
         updateActivePlanExtras(extras => extras.map(e => e.id === tempId ? serverExtra : e));
       })
@@ -484,6 +490,58 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       console.error('Remove extra failed:', err);
     });
   }, [state.activePlanId, updateActivePlanExtras]);
+
+  // --- Menu courses ---
+
+  const updateActivePlanCourses = useCallback((updater: (courses: MenuCourse[]) => MenuCourse[]) => {
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p =>
+        p.id === prev.activePlanId
+          ? { ...p, courses: updater(p.courses || []) }
+          : p
+      ),
+    }));
+  }, []);
+
+  const addCourse = useCallback(() => {
+    if (!state.activePlanId) return;
+
+    const tempId = -Date.now();
+    const currentCourses = activePlan?.courses || [];
+    const nextOrder = currentCourses.length > 0 ? Math.max(...currentCourses.map(c => c.sortOrder)) + 1 : 1;
+    const newCourse: MenuCourse = { id: tempId, sortOrder: nextOrder, label: `Gang ${nextOrder}`, comment: '' };
+    updateActivePlanCourses(courses => [...courses, newCourse]);
+
+    api.post<MenuCourse>(`/api/plans/${state.activePlanId}/courses`, {})
+      .then(serverCourse => {
+        updateActivePlanCourses(courses => courses.map(c => c.id === tempId ? serverCourse : c));
+      })
+      .catch(err => {
+        console.error('Add course failed:', err);
+        updateActivePlanCourses(courses => courses.filter(c => c.id !== tempId));
+      });
+  }, [state.activePlanId, activePlan, updateActivePlanCourses]);
+
+  const updateCourse = useCallback((courseId: number, updates: Partial<Pick<MenuCourse, 'label' | 'comment'>>) => {
+    if (!state.activePlanId) return;
+    updateActivePlanCourses(courses => courses.map(c => c.id === courseId ? { ...c, ...updates } : c));
+    api.put(`/api/plans/${state.activePlanId}/courses/${courseId}`, updates).catch(err => {
+      console.error('Update course failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanCourses]);
+
+  const removeCourse = useCallback((courseId: number) => {
+    if (!state.activePlanId) return;
+    updateActivePlanCourses(courses => courses.filter(c => c.id !== courseId));
+    // Also remove entries and extras for this course
+    const courseDate = `course_${courseId}`;
+    updateActivePlanEntries(entries => entries.filter(e => e.date !== courseDate));
+    updateActivePlanExtras(extras => extras.filter(e => e.courseId !== courseId));
+    api.delete(`/api/plans/${state.activePlanId}/courses/${courseId}`).catch(err => {
+      console.error('Remove course failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanCourses, updateActivePlanEntries, updateActivePlanExtras]);
 
   const renameIngredientInAllMeals = useCallback((oldName: string, newName: string) => {
     if (!oldName.trim() || !newName.trim() || oldName === newName) return;
@@ -554,6 +612,9 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         addExtra,
         updateExtra,
         removeExtra,
+        addCourse,
+        updateCourse,
+        removeCourse,
       }}
     >
       {children}

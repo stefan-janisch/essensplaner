@@ -25,6 +25,16 @@ function rowToExtra(row) {
     amount: row.amount,
     unit: row.unit,
     enabled: row.enabled === 1,
+    courseId: row.course_id || undefined,
+  };
+}
+
+function rowToCourse(row) {
+  return {
+    id: row.id,
+    sortOrder: row.sort_order,
+    label: row.label,
+    comment: row.comment,
   };
 }
 
@@ -32,6 +42,7 @@ function rowToPlan(row, userId) {
   return {
     id: row.id,
     name: row.name,
+    planType: row.plan_type || 'weekly',
     startDate: row.start_date,
     endDate: row.end_date,
     archived: row.archived === 1,
@@ -109,18 +120,35 @@ router.get('/', (req, res) => {
 // Create plan
 router.post('/', (req, res) => {
   try {
-    const { name, startDate, endDate } = req.body;
+    const { name, startDate, endDate, planType } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name ist erforderlich' });
     }
 
+    const type = planType === 'menu' ? 'menu' : 'weekly';
     const result = db.prepare(
-      'INSERT INTO meal_plans (user_id, name, start_date, end_date) VALUES (?, ?, ?, ?)'
-    ).run(req.userId, name, startDate || null, endDate || null);
+      'INSERT INTO meal_plans (user_id, name, plan_type, start_date, end_date) VALUES (?, ?, ?, ?, ?)'
+    ).run(req.userId, name, type, startDate || null, endDate || null);
+
+    // For menu plans, create 3 default courses
+    if (type === 'menu') {
+      const insertCourse = db.prepare(
+        'INSERT INTO menu_courses (plan_id, sort_order, label) VALUES (?, ?, ?)'
+      );
+      insertCourse.run(result.lastInsertRowid, 1, 'Gang 1');
+      insertCourse.run(result.lastInsertRowid, 2, 'Gang 2');
+      insertCourse.run(result.lastInsertRowid, 3, 'Gang 3');
+    }
 
     const plan = db.prepare('SELECT mp.*, u.email AS owner_email FROM meal_plans mp JOIN users u ON u.id = mp.user_id WHERE mp.id = ?').get(result.lastInsertRowid);
-    res.status(201).json(rowToPlan(plan, req.userId));
+    const response = rowToPlan(plan, req.userId);
+
+    if (type === 'menu') {
+      response.courses = db.prepare('SELECT * FROM menu_courses WHERE plan_id = ? ORDER BY sort_order').all(result.lastInsertRowid).map(rowToCourse);
+    }
+
+    res.status(201).json(response);
   } catch (err) {
     console.error('Create plan error:', err);
     res.status(500).json({ error: 'Plan konnte nicht erstellt werden' });
@@ -164,6 +192,10 @@ router.get('/:planId', (req, res) => {
     'SELECT * FROM plan_extras WHERE plan_id = ?'
   ).all(plan.id);
 
+  const courses = db.prepare(
+    'SELECT * FROM menu_courses WHERE plan_id = ? ORDER BY sort_order'
+  ).all(plan.id);
+
   const ownerRow = db.prepare('SELECT email FROM users WHERE id = ?').get(plan.user_id);
 
   res.json({
@@ -171,6 +203,7 @@ router.get('/:planId', (req, res) => {
     ownerEmail: ownerRow?.email || null,
     entries: entries.map(rowToEntry),
     extras: extras.map(rowToExtra),
+    courses: courses.map(rowToCourse),
     sharedMeals,
     collaborators,
   });
@@ -329,14 +362,14 @@ router.post('/:planId/extras', (req, res) => {
   if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
 
   try {
-    const { category, name, amount, unit } = req.body;
+    const { category, name, amount, unit, courseId } = req.body;
     if (!category || !name) {
       return res.status(400).json({ error: 'category und name sind erforderlich' });
     }
 
     const result = db.prepare(
-      'INSERT INTO plan_extras (plan_id, category, name, amount, unit) VALUES (?, ?, ?, ?, ?)'
-    ).run(plan.id, category, name, amount ?? 1, unit ?? 'Stück');
+      'INSERT INTO plan_extras (plan_id, category, name, amount, unit, course_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(plan.id, category, name, amount ?? 1, unit ?? 'Stück', courseId || null);
 
     const row = db.prepare('SELECT * FROM plan_extras WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(rowToExtra(row));
@@ -380,6 +413,69 @@ router.delete('/:planId/extras/:extraId', (req, res) => {
   if (!extra) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
 
   db.prepare('DELETE FROM plan_extras WHERE id = ?').run(extra.id);
+  res.json({ ok: true });
+});
+
+// --- Menu courses ---
+
+// Add course
+router.post('/:planId/courses', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  try {
+    const maxOrder = db.prepare('SELECT MAX(sort_order) as max FROM menu_courses WHERE plan_id = ?').get(plan.id);
+    const nextOrder = (maxOrder?.max || 0) + 1;
+    const label = req.body.label || `Gang ${nextOrder}`;
+
+    const result = db.prepare(
+      'INSERT INTO menu_courses (plan_id, sort_order, label) VALUES (?, ?, ?)'
+    ).run(plan.id, nextOrder, label);
+
+    const row = db.prepare('SELECT * FROM menu_courses WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(rowToCourse(row));
+  } catch (err) {
+    console.error('Add course error:', err);
+    res.status(500).json({ error: 'Gang konnte nicht erstellt werden' });
+  }
+});
+
+// Update course
+router.put('/:planId/courses/:courseId', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  const course = db.prepare('SELECT * FROM menu_courses WHERE id = ? AND plan_id = ?')
+    .get(req.params.courseId, plan.id);
+  if (!course) return res.status(404).json({ error: 'Gang nicht gefunden' });
+
+  const { label, comment } = req.body;
+  db.prepare(
+    'UPDATE menu_courses SET label = ?, comment = ? WHERE id = ?'
+  ).run(
+    label !== undefined ? label : course.label,
+    comment !== undefined ? comment : course.comment,
+    course.id
+  );
+
+  const row = db.prepare('SELECT * FROM menu_courses WHERE id = ?').get(course.id);
+  res.json(rowToCourse(row));
+});
+
+// Delete course
+router.delete('/:planId/courses/:courseId', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  const course = db.prepare('SELECT * FROM menu_courses WHERE id = ? AND plan_id = ?')
+    .get(req.params.courseId, plan.id);
+  if (!course) return res.status(404).json({ error: 'Gang nicht gefunden' });
+
+  // Delete entries associated with this course
+  db.prepare('DELETE FROM meal_plan_entries WHERE plan_id = ? AND date = ?')
+    .run(plan.id, `course_${course.id}`);
+
+  db.prepare('DELETE FROM menu_courses WHERE id = ?').run(course.id);
   res.json({ ok: true });
 });
 

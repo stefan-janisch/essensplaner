@@ -132,4 +132,68 @@ if (version < 6) {
   console.log('✓ Migration v6 complete');
 }
 
+if (version < 7) {
+  console.log('Running migration v7: menu plans + courses...');
+  const cols = db.prepare("PRAGMA table_info(meal_plans)").all().map(c => c.name);
+  if (!cols.includes('plan_type')) {
+    db.exec("ALTER TABLE meal_plans ADD COLUMN plan_type TEXT NOT NULL DEFAULT 'weekly'");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS menu_courses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      comment TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_menu_courses_plan_id ON menu_courses(plan_id);
+  `);
+  db.pragma('user_version = 7');
+  console.log('✓ Migration v7 complete');
+}
+
+if (version < 8) {
+  console.log('Running migration v8: extend meal_type + extras for menu plans...');
+  // Rebuild meal_plan_entries with 'food' added to CHECK
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meal_plan_entries_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'misc', 'food')),
+      meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+      servings INTEGER NOT NULL DEFAULT 2,
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT INTO meal_plan_entries_new (id, plan_id, date, meal_type, meal_id, servings, enabled)
+      SELECT id, plan_id, date, meal_type, meal_id, servings, enabled
+      FROM meal_plan_entries;
+    DROP TABLE meal_plan_entries;
+    ALTER TABLE meal_plan_entries_new RENAME TO meal_plan_entries;
+    CREATE INDEX idx_entries_plan_id ON meal_plan_entries(plan_id);
+    CREATE INDEX idx_entries_slot ON meal_plan_entries(plan_id, date, meal_type);
+  `);
+  // Rebuild plan_extras with 'food' category + course_id
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plan_extras_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      category TEXT NOT NULL CHECK(category IN ('snacks', 'drinks', 'misc', 'food')),
+      name TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 1,
+      unit TEXT NOT NULL DEFAULT 'Stück',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      course_id INTEGER REFERENCES menu_courses(id) ON DELETE CASCADE
+    );
+    INSERT INTO plan_extras_new (id, plan_id, category, name, amount, unit, enabled)
+      SELECT id, plan_id, category, name, amount, unit, enabled
+      FROM plan_extras;
+    DROP TABLE plan_extras;
+    ALTER TABLE plan_extras_new RENAME TO plan_extras;
+    CREATE INDEX idx_extras_plan_id ON plan_extras(plan_id);
+  `);
+  db.pragma('user_version = 8');
+  console.log('✓ Migration v8 complete');
+}
+
 export default db;

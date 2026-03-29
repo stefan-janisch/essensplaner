@@ -22,7 +22,16 @@ export type Meal = {
   totalTime?: number;
 }
 
-export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks' | 'drinks' | 'misc';
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks' | 'drinks' | 'misc' | 'food';
+
+export type PlanType = 'weekly' | 'menu';
+
+export type MenuCourse = {
+  id: number;
+  sortOrder: number;
+  label: string;
+  comment: string;
+}
 
 export type MealPlanEntry = {
   id: number;
@@ -40,21 +49,24 @@ export type Collaborator = {
 
 export type ExtraItem = {
   id: number;
-  category: 'snacks' | 'drinks' | 'misc';
+  category: 'snacks' | 'drinks' | 'misc' | 'food';
   name: string;
   amount: number;
   unit: string;
   enabled: boolean;
+  courseId?: number;
 }
 
 export type MealPlan = {
   id: number;
   name: string;
+  planType?: PlanType;
   startDate: string | null;
   endDate: string | null;
   archived?: boolean;
   entries: MealPlanEntry[];
   extras: ExtraItem[];
+  courses?: MenuCourse[];
   createdAt?: string;
   isOwner?: boolean;
   ownerEmail?: string | null;

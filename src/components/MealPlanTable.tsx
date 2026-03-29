@@ -6,12 +6,12 @@ import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
 
-interface MealCellItemProps {
+export interface MealCellItemProps {
   entry: MealPlanEntry;
   meal: Meal;
 }
 
-const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
+export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
   const { removeEntry, toggleEntryEnabled, updateEntryServings, toggleMealStar, updateMeal } = useMealPlan();
   const [isEditing, setIsEditing] = useState(false);
   const [editServings, setEditServings] = useState(entry.servings);
@@ -187,7 +187,7 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
   );
 };
 
-const ExtraItemRow: React.FC<{ item: ExtraItem }> = ({ item }) => {
+export const ExtraItemRow: React.FC<{ item: ExtraItem }> = ({ item }) => {
   const { updateExtra, removeExtra } = useMealPlan();
 
   return (
@@ -297,6 +297,7 @@ const ExtrasCell: React.FC<{ category: ExtraItem['category'] }> = ({ category })
           placeholder="Einh."
           value={unit}
           onChange={e => setUnit(e.target.value)}
+          onFocus={e => { const el = e.target; setTimeout(() => el.select()); }}
           onKeyDown={handleKeyDown}
           style={{ width: '50px', minWidth: '50px', padding: '3px 6px', fontSize: '12px' }}
         />
@@ -346,8 +347,9 @@ export const MealPlanTable: React.FC = () => {
         <tbody>
           {dates.map(date => (
             <tr key={date}>
-              <td style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                {format(parseISO(date), 'EEE, dd.MM.yyyy', { locale: de })}
+              <td style={{ whiteSpace: 'nowrap', fontSize: '12px', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 600 }}>{format(parseISO(date), 'EEEE', { locale: de })}</div>
+                <div style={{ color: 'var(--text)' }}>{format(parseISO(date), 'dd.MM.yyyy')}</div>
               </td>
               <MealCell date={date} mealType="breakfast" />
               <MealCell date={date} mealType="lunch" />

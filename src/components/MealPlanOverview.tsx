@@ -6,15 +6,16 @@ import { de } from 'date-fns/locale';
 import { format } from 'date-fns';
 import { useMealPlan } from '../context/MealPlanContext';
 import { ShareDialog } from './ShareDialog';
-import type { MealPlan } from '../types/index.js';
+import type { MealPlan, PlanType } from '../types/index.js';
 
 interface MealPlanOverviewProps {
-  onOpenPlan: (planId: number) => void;
+  onOpenPlan: (planId: number, planType?: PlanType) => void;
 }
 
 export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }) => {
   const { state, createPlan, deletePlan, leavePlan, selectPlan, renamePlan, archivePlan, refreshPlans } = useMealPlan();
   const [showCreate, setShowCreate] = useState(false);
+  const [createType, setCreateType] = useState<'weekly' | 'menu'>('weekly');
   const [planName, setPlanName] = useState('');
   const [selectionRange, setSelectionRange] = useState({
     startDate: new Date(),
@@ -63,16 +64,24 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
   };
 
   const handleCreate = async () => {
-    if (!hasSelected) return;
+    if (createType === 'weekly' && !hasSelected) return;
     setCreating(true);
     try {
-      const defaultName = planName || `Plan ${format(selectionRange.startDate, 'dd.MM.yy')}`;
-      const newPlanId = await createPlan(defaultName, selectionRange.startDate, selectionRange.endDate);
-      setPlanName('');
-      setHasSelected(false);
-      setSelectionRange({ startDate: new Date(), endDate: new Date(), key: 'selection' });
-      setShowCreate(false);
-      onOpenPlan(newPlanId);
+      if (createType === 'menu') {
+        const defaultName = planName || `Menü ${format(new Date(), 'dd.MM.yy')}`;
+        const newPlanId = await createPlan(defaultName, null, null, 'menu');
+        setPlanName('');
+        setShowCreate(false);
+        onOpenPlan(newPlanId, 'menu');
+      } else {
+        const defaultName = planName || `Plan ${format(selectionRange.startDate, 'dd.MM.yy')}`;
+        const newPlanId = await createPlan(defaultName, selectionRange.startDate, selectionRange.endDate);
+        setPlanName('');
+        setHasSelected(false);
+        setSelectionRange({ startDate: new Date(), endDate: new Date(), key: 'selection' });
+        setShowCreate(false);
+        onOpenPlan(newPlanId);
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Fehler beim Erstellen');
     } finally {
@@ -101,19 +110,23 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
     setRenamingId(null);
   };
 
-  const handleOpenPlan = (planId: number) => {
-    selectPlan(planId);
-    onOpenPlan(planId);
+  const handleOpenPlan = (plan: MealPlan) => {
+    selectPlan(plan.id);
+    onOpenPlan(plan.id, plan.planType);
   };
 
-  const filledEntryCount = (plan: MealPlan) => {
-    if (plan.entries) return plan.entries.length;
-    if (plan.entryCount != null) return plan.entryCount;
-    return '?';
+  const planInfo = (plan: MealPlan) => {
+    if (plan.planType === 'menu') {
+      const courseCount = plan.courses?.length;
+      if (courseCount != null) return `${courseCount} Gänge`;
+      return 'Menüplan';
+    }
+    const count = plan.entries ? plan.entries.length : plan.entryCount ?? '?';
+    return `${count} Mahlzeiten geplant`;
   };
 
   const renderPlanCard = (plan: MealPlan) => (
-    <div key={plan.id} className="card" style={{ padding: '20px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleOpenPlan(plan.id)}>
+    <div key={plan.id} className="card" style={{ padding: '20px', textAlign: 'center', cursor: 'pointer', ...(plan.planType === 'menu' ? { borderColor: 'var(--color-success, #4caf50)' } : {}) }} onClick={() => handleOpenPlan(plan)}>
       <div style={{ marginBottom: '12px' }}>
         {renamingId === plan.id ? (
           <input
@@ -175,7 +188,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
       )}
 
       <div style={{ fontSize: '13px', color: 'var(--text)', marginBottom: '16px' }}>
-        {filledEntryCount(plan)} Mahlzeiten geplant
+        {planInfo(plan)}
       </div>
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>
@@ -234,45 +247,68 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
       {showCreate && (
         <div className="panel" style={{ marginBottom: '24px' }}>
           <h3 style={{ margin: '0 0 16px 0', textAlign: 'center' }}>Neuen Plan erstellen</h3>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+            <button
+              className={`btn btn-sm ${createType === 'weekly' ? 'btn-primary' : 'btn-muted'}`}
+              onClick={() => setCreateType('weekly')}
+            >
+              Essensplan
+            </button>
+            <button
+              className={`btn btn-sm ${createType === 'menu' ? 'btn-primary' : 'btn-muted'}`}
+              onClick={() => setCreateType('menu')}
+            >
+              Menüplan
+            </button>
+          </div>
+
           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
-            <div className="date-range-picker-wrapper">
-              <DateRange
-                ranges={[selectionRange]}
-                onChange={handleSelect}
-                locale={de}
-                months={2}
-                direction="horizontal"
-                showDateDisplay={false}
-                rangeColors={['var(--accent)']}
-                color="var(--accent)"
-              />
-            </div>
+            {createType === 'weekly' && (
+              <div className="date-range-picker-wrapper">
+                <DateRange
+                  ranges={[selectionRange]}
+                  onChange={handleSelect}
+                  locale={de}
+                  months={2}
+                  direction="horizontal"
+                  showDateDisplay={false}
+                  rangeColors={['var(--accent)']}
+                  color="var(--accent)"
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '200px', justifyContent: 'center', alignItems: 'center' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Name</label>
                 <input
                   className="input"
                   type="text"
-                  placeholder="Planname (optional)"
+                  placeholder={createType === 'menu' ? 'Menüname (optional)' : 'Planname (optional)'}
                   value={planName}
                   onChange={e => setPlanName(e.target.value)}
                   style={{ width: '100%' }}
                 />
               </div>
-              {hasSelected && (
+              {createType === 'weekly' && hasSelected && (
                 <div style={{ fontSize: '14px', color: 'var(--text)' }}>
                   {format(selectionRange.startDate, 'dd.MM.yyyy')} — {format(selectionRange.endDate, 'dd.MM.yyyy')}
+                </div>
+              )}
+              {createType === 'menu' && (
+                <div style={{ fontSize: '13px', color: 'var(--text)', textAlign: 'center' }}>
+                  Startet mit 3 Gängen (weitere können hinzugefügt werden)
                 </div>
               )}
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button
                   className="btn btn-primary"
                   onClick={handleCreate}
-                  disabled={!hasSelected || creating}
+                  disabled={(createType === 'weekly' && !hasSelected) || creating}
                 >
                   {creating ? '...' : 'Erstellen'}
                 </button>
-                <button className="btn btn-muted" onClick={() => { setShowCreate(false); setHasSelected(false); setPlanName(''); }}>
+                <button className="btn btn-muted" onClick={() => { setShowCreate(false); setHasSelected(false); setPlanName(''); setCreateType('weekly'); }}>
                   Abbrechen
                 </button>
               </div>
