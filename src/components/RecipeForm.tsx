@@ -22,7 +22,22 @@ async function parseRecipeFromURL(url: string, existingTags: string[]): Promise<
   return response.json();
 }
 
-async function parseIngredientsWithAI(ingredientText: string): Promise<{ ingredients: Ingredient[]; servings: number | null }> {
+async function cleanRecipeText(recipeText: string): Promise<string> {
+  const response = await fetch(`${API_URL}/api/clean-recipe-text`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipeText }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Fehler beim Bereinigen');
+  }
+  const data = await response.json();
+  return data.cleanedText;
+}
+
+async function parseIngredientsWithAI(ingredientText: string): Promise<{ ingredients: Ingredient[]; shoppingIngredients: Ingredient[]; servings: number | null }> {
   const response = await fetch(`${API_URL}/api/parse-ingredients`, {
     method: 'POST',
     credentials: 'include',
@@ -189,6 +204,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   const [recipeUrl, setRecipeUrl] = useState(initialData?.recipeUrl || '');
   const [ingredientText, setIngredientText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
 
   const [name, setName] = useState(initialData?.name || '');
   const [servings, setServings] = useState(initialData?.defaultServings || 2);
@@ -196,6 +212,9 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   const [recipeText, setRecipeText] = useState(initialData?.recipeText || '');
   const [ingredients, setIngredients] = useState<Ingredient[]>(
     initialData?.ingredients?.length ? initialData.ingredients : [{ name: '', amount: 0, unit: '' }]
+  );
+  const [shoppingIngredients, setShoppingIngredients] = useState<Ingredient[]>(
+    initialData?.shoppingIngredients?.length ? initialData.shoppingIngredients : []
   );
 
   const [category, setCategory] = useState(initialData?.category || '');
@@ -236,7 +255,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       if (parsed.ingredientText.trim()) {
         if (!name.trim()) setName(parsed.name);
         if (servings === 2 || !servings) setServings(parsed.servings);
-        if (!ingredientText.trim()) setIngredientText(parsed.ingredientText);
+        setIngredientText(parsed.ingredientText);
         if (!recipeText.trim()) setRecipeText(parsed.recipeText);
         if (!category && parsed.category) setCategory(parsed.category);
         if (tags.length === 0 && parsed.tags?.length) setTags(parsed.tags);
@@ -247,6 +266,17 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
           setPhotoPreview(parsed.photoUrl);
           setPhotoFile(null);
           setDeletePhoto(false);
+        }
+        // Auto-parse ingredients (dual lists)
+        try {
+          const parsedIngs = await parseIngredientsWithAI(parsed.ingredientText);
+          if (parsedIngs.ingredients.length > 0) {
+            setIngredients(parsedIngs.ingredients);
+            setShoppingIngredients(parsedIngs.shoppingIngredients || []);
+            if (parsedIngs.servings && (servings === 2 || !servings)) setServings(parsedIngs.servings);
+          }
+        } catch {
+          // Ingredient parsing failed — user can still parse manually
         }
       } else {
         alert('Keine Zutaten gefunden. Bitte überprüfen Sie die URL.');
@@ -265,6 +295,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       const parsed = await parseIngredientsWithAI(ingredientText);
       if (parsed.ingredients.length > 0) {
         setIngredients(parsed.ingredients);
+        setShoppingIngredients(parsed.shoppingIngredients || []);
         if (parsed.servings) setServings(parsed.servings);
       } else {
         alert('Keine Zutaten gefunden. Bitte überprüfen Sie den Text.');
@@ -276,12 +307,33 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
     }
   };
 
+  const handleCleanRecipeText = async () => {
+    if (!recipeText.trim()) return;
+    try {
+      setIsCleaning(true);
+      const cleaned = await cleanRecipeText(recipeText);
+      setRecipeText(cleaned);
+    } catch (error) {
+      alert('Fehler beim Bereinigen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
   const handleAddIngredient = () => setIngredients([...ingredients, { name: '', amount: 0, unit: '' }]);
   const handleRemoveIngredient = (index: number) => setIngredients(ingredients.filter((_, i) => i !== index));
   const handleIngredientChange = (index: number, field: keyof Ingredient, value: string | number) => {
     const updated = [...ingredients];
     updated[index] = { ...updated[index], [field]: value };
     setIngredients(updated);
+  };
+
+  const handleAddShoppingIngredient = () => setShoppingIngredients([...shoppingIngredients, { name: '', amount: 0, unit: '' }]);
+  const handleRemoveShoppingIngredient = (index: number) => setShoppingIngredients(shoppingIngredients.filter((_, i) => i !== index));
+  const handleShoppingIngredientChange = (index: number, field: keyof Ingredient, value: string | number) => {
+    const updated = [...shoppingIngredients];
+    updated[index] = { ...updated[index], [field]: value };
+    setShoppingIngredients(updated);
   };
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -306,11 +358,13 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
     if (!name.trim()) { alert('Bitte geben Sie einen Namen ein'); return; }
     const validIngredients = ingredients.filter(ing => ing.name.trim() && ing.amount >= 0);
     if (validIngredients.length === 0) { alert('Bitte fügen Sie mindestens eine Zutat hinzu'); return; }
+    const validShoppingIngredients = shoppingIngredients.filter(ing => ing.name.trim() && ing.amount >= 0);
 
     onSubmit({
       meal: {
         name: name.trim(),
         ingredients: validIngredients,
+        shoppingIngredients: validShoppingIngredients.length > 0 ? validShoppingIngredients : undefined,
         defaultServings: servings,
         starred: initialData?.starred ?? false,
         recipeUrl: recipeUrl || undefined,
@@ -444,6 +498,9 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       <div style={{ marginBottom: '15px' }}>
         <label style={{ display: 'block', marginBottom: '5px' }}>Zubereitung:</label>
         <textarea className="textarea" value={recipeText} onChange={(e) => setRecipeText(e.target.value)} placeholder="Optionale Zubereitungsschritte..." rows={6} style={{ width: '100%' }} />
+        <button type="button" className="btn btn-warning btn-sm" onClick={handleCleanRecipeText} disabled={!recipeText.trim() || isCleaning} style={{ marginTop: '8px' }}>
+          {isCleaning ? '🤖 Räumt auf...' : '✨ Aufräumen'}
+        </button>
       </div>
 
       {/* Ingredient text parsing */}
@@ -451,27 +508,58 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
         <label style={{ display: 'block', marginBottom: '5px' }}>ODER Zutatenliste einfügen:</label>
         <textarea className="textarea" value={ingredientText} onChange={(e) => setIngredientText(e.target.value)} placeholder={"Z.B.:\n2 Zwiebeln\n500g Tomaten\n3 Zehen Knoblauch\n2 EL Olivenöl"} rows={6} style={{ width: '100%' }} />
         <button type="button" className="btn btn-accent" onClick={handleParseIngredients} disabled={!ingredientText.trim() || isParsing} style={{ marginTop: '8px' }}>
-          {isParsing ? '🤖 Parst...' : '📝 Text parsen'}
+          {isParsing ? '🤖 Parst...' : '📝 Zutaten parsen'}
         </button>
       </div>
 
-      {/* Ingredients */}
-      <div style={{ marginBottom: '15px' }}>
-        <label style={{ display: 'block', marginBottom: '5px' }}>Zutaten:*</label>
-        {ingredients.map((ing, index) => (
-          <div key={index} style={{ display: 'flex', gap: '5px', marginBottom: '5px' }}>
-            <input className="input" type="text" placeholder="Zutat" value={ing.name} onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
-              style={{ flex: 2, ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-            <input className="input" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
-              style={{ flex: 1, ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-            <input className="input" type="text" placeholder="Einheit" value={ing.unit} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
-              style={{ flex: 1, ...(ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {}) }} />
-            {ingredients.length > 1 && (
-              <button type="button" className="btn btn-danger btn-sm" onClick={() => handleRemoveIngredient(index)}>✗</button>
-            )}
-          </div>
-        ))}
-        <button type="button" className="btn btn-muted btn-sm" onClick={handleAddIngredient} style={{ marginTop: '5px' }}>+ Zutat hinzufügen</button>
+      {/* Ingredients — side by side: display + shopping */}
+      <div style={{ marginBottom: '15px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+        {/* Display ingredients (verbatim from recipe) */}
+        <div>
+          <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-Zutaten:*</label>
+          {ingredients.map((ing, index) => (
+            <div key={index} style={{ display: 'flex', gap: '3px', marginBottom: '4px' }}>
+              <input className="input" type="text" placeholder="Zutat" value={ing.name} onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
+                style={{ flex: 2, ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
+              <input className="input" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
+                style={{ flex: 0, width: '65px', minWidth: '65px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
+              <input className="input" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
+                style={{ flex: 0, width: '55px', minWidth: '55px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {}) }} />
+              {ingredients.length > 1 && (
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => handleRemoveIngredient(index)} style={{ padding: '2px 6px' }}>✗</button>
+              )}
+            </div>
+          ))}
+          <button type="button" className="btn btn-muted btn-sm" onClick={handleAddIngredient} style={{ marginTop: '5px' }}>+ Zutat</button>
+        </div>
+
+        {/* Shopping ingredients (normalized for shopping list) */}
+        <div>
+          <label style={{ display: 'block', marginBottom: '5px' }}>Einkaufslisten-Zutaten:</label>
+          {(shoppingIngredients.length > 0 ? shoppingIngredients : [{ name: '', amount: 0, unit: '' }]).map((ing, index) => (
+            <div key={index} style={{ display: 'flex', gap: '3px', marginBottom: '4px' }}>
+              <input className="input" type="text" placeholder="Zutat" value={ing.name} onChange={(e) => {
+                if (shoppingIngredients.length === 0) setShoppingIngredients([{ name: e.target.value, amount: 0, unit: '' }]);
+                else handleShoppingIngredientChange(index, 'name', e.target.value);
+              }}
+                style={{ flex: 2, ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
+              <input className="input" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => {
+                if (shoppingIngredients.length === 0) setShoppingIngredients([{ name: '', amount: parseFloat(e.target.value) || 0, unit: '' }]);
+                else handleShoppingIngredientChange(index, 'amount', parseFloat(e.target.value) || 0);
+              }}
+                style={{ flex: 0, width: '65px', minWidth: '65px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
+              <input className="input" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => {
+                if (shoppingIngredients.length === 0) setShoppingIngredients([{ name: '', amount: 0, unit: e.target.value }]);
+                else handleShoppingIngredientChange(index, 'unit', e.target.value);
+              }}
+                style={{ flex: 0, width: '55px', minWidth: '55px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {}) }} />
+              {shoppingIngredients.length > 1 && (
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => handleRemoveShoppingIngredient(index)} style={{ padding: '2px 6px' }}>✗</button>
+              )}
+            </div>
+          ))}
+          <button type="button" className="btn btn-muted btn-sm" onClick={handleAddShoppingIngredient} style={{ marginTop: '5px' }}>+ Zutat</button>
+        </div>
       </div>
 
       {/* Actions */}

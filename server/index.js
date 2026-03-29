@@ -1,21 +1,20 @@
 import toml from '@iarna/toml';
+import SqliteStore from 'better-sqlite3-session-store';
 import cors from 'cors';
 import express from 'express';
 import session from 'express-session';
-import SqliteStore from 'better-sqlite3-session-store';
 
-import crypto from 'crypto';
 import { readFileSync } from 'fs';
 import OpenAI from 'openai';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import db from './db.js';
+import { requireAuth } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import mealsRoutes from './routes/meals.js';
 import plansRoutes from './routes/plans.js';
 import settingsRoutes from './routes/settings.js';
-import { requireAuth } from './middleware/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,7 +28,7 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors({
-  origin: CLIENT_URL,
+  origin: [CLIENT_URL, 'https://dev.essensplaner.stefanjanisch.net'],
   credentials: true
 }));
 app.use(express.json());
@@ -206,7 +205,7 @@ ${existingTagsList.join(', ')}` : ''}`
   }
 });
 
-// Parse ingredients endpoint
+// Parse ingredients endpoint — returns both display and shopping ingredient lists
 app.post('/api/parse-ingredients', requireAuth, async (req, res) => {
   try {
     const { ingredientText } = req.body;
@@ -215,20 +214,23 @@ app.post('/api/parse-ingredients', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'ingredientText is required' });
     }
 
-    console.log('Parsing ingredients...');
+    console.log('Parsing ingredients (dual lists)...');
 
-    const completion = await openaiClient.chat.completions.create({
-      model: 'gpt-4.1',
-      messages: [
-        {
-          role: 'system',
-          content: `Du bist ein Assistent, der Zutatenlisten aus Rezepten parst.
+    // Run both AI calls in parallel
+    const [displayCompletion, shoppingCompletion] = await Promise.all([
+      // Call 1: Display ingredients — preserve original units
+      openaiClient.chat.completions.create({
+        model: 'gpt-4.1',
+        messages: [
+          {
+            role: 'system',
+            content: `Du bist ein Assistent, der Zutatenlisten aus Rezepten parst.
 Extrahiere die Zutaten und die Anzahl der Portionen.
 Gib das Ergebnis als JSON-Objekt zurück: { "ingredients": [...], "servings": number }
 
 ingredients-Array: Jedes Element hat die Struktur { "name": string, "amount": number, "unit": string }
 
-WICHTIG: Bewahre die EXAKTEN Mengenangaben aus dem Text! Ändere KEINE Zahlen!
+WICHTIG: Bewahre die EXAKTEN Mengenangaben und Einheiten aus dem Text! Ändere KEINE Zahlen und konvertiere KEINE Einheiten!
 WICHTIG: Übersetze alle Zutatennamen ins Deutsche!
 
 Regeln:
@@ -237,64 +239,126 @@ Regeln:
   - Beispiele: "onions" → "Zwiebeln", "flour" → "Mehl", "salt" → "Salz"
   - Immer im Plural, z.B. "2 Zwiebeln" → "Zwiebeln", "1 Zitrone" → "Zitronen"
   - Bevorzuge z.B. "Petersilie frisch" statt "Frische Petersilie"
-- "amount" ist die EXAKTE Menge als Zahl aus dem Text (z.B. wenn "30 g" im Text steht → amount: 30, NICHT 20!)
-- "unit" ist die Einheit - Erlaubte Einheiten: "g", "ml", "Stück"
-  - Feste/pulvrige Zutaten → "g" (z.B. 1kg → 1000g, 2 EL Mehl → 30g)
-  - Flüssige Zutaten → "ml" (z.B. 1L → 1000ml, 2 EL Öl → 30ml)
-  - Stückzahlen → "Stück" (z.B. "2 Zwiebeln" → 2 Stück, "1 Zitrone" → 1 Stück)
-  - 1 TL ≈ 5g/5ml, 1 EL ≈ 15g/15ml
-  - Wenn bereits "g" oder "ml" im Text steht, übernimm die EXAKTE Zahl!
-- Für Knoblauch: 1 Zehe entspricht 0.1 Stück!
-- Bei ungenauen Mengen wie "etwas", "nach Geschmack" oder "nach Belieben" verwende amount: 1 und unit: "Nach Belieben"
+- "amount" ist die EXAKTE Menge als Zahl aus dem Text
+- "unit" ist die ORIGINALE Einheit aus dem Text. Erlaubte Einheiten:
+  - Gewicht: "g", "kg"
+  - Volumen: "ml", "l", "EL", "TL"
+  - Stückzahlen: "Stück", "Zehe", "Zehen", "Scheibe", "Scheiben"
+  - Packungen: "Bund", "Dose", "Packung", "Becher", "Beutel", "Glas"
+  - Sonstiges: "Prise", "Handvoll", "Würfel"
+  - Falls keine Einheit angegeben (z.B. "2 Zwiebeln"), verwende "Stück"
+  - Konvertiere NICHT zwischen Einheiten! Behalte "2 EL" als amount: 2, unit: "EL"
+- Bei ungenauen Mengen wie "etwas", "nach Geschmack" oder "nach Belieben" verwende amount: 1 und unit: "NB"
 - "servings" ist die Anzahl der Portionen (z.B. "für 4 Personen" → 4, "2 Portionen" → 2)
 - Falls keine Portionsangabe gefunden wird, verwende null
 - Ignoriere Zubereitungshinweise, nur Zutaten extrahieren
 - Antworte NUR mit dem JSON-Objekt, ohne zusätzlichen Text`
-        },
-        {
-          role: 'user',
-          content: ingredientText
-        }
-      ],
-      temperature: 0,
-    });
+          },
+          { role: 'user', content: ingredientText }
+        ],
+        temperature: 0,
+      }),
+      // Call 2: Shopping ingredients — normalize to g/ml/Stück with purchasable substitutions
+      openaiClient.chat.completions.create({
+        model: 'gpt-4.1',
+        messages: [
+          {
+            role: 'system',
+            content: `Du bist ein Assistent, der Zutatenlisten für eine Einkaufsliste optimiert.
+Dein Ziel: Konvertiere Rezept-Zutaten in das, was man tatsächlich im Supermarkt kaufen muss.
+Gib das Ergebnis als JSON-Objekt zurück: { "ingredients": [...], "servings": number }
 
-    const responseText = completion.choices[0]?.message?.content || '{"ingredients":[],"servings":null}';
+ingredients-Array: Jedes Element hat die Struktur { "name": string, "amount": number, "unit": string }
 
-    // Try to parse the JSON response
-    let parsed;
-    try {
-      // Remove markdown code blocks if present
+WICHTIG: Übersetze alle Zutatennamen ins Deutsche!
+
+## Schritt 1: Konvertiere zu einkaufbaren Zutaten
+Manche Rezept-Zutaten kann man nicht direkt kaufen. Konvertiere sie zur einkaufbaren Form:
+- "Eigelb" → "Eier" (1 Eigelb = 1 Stück Eier)
+- "Eiweiß" → "Eier" (1 Eiweiß = 1 Stück Eier)
+- "Zitronensaft" → "Zitronen" (1 Zitrone liefert ca. 40-50ml Saft, also 2 EL ≈ 30ml ≈ 1 Stück)
+- "Zitronenschale" / "Zitronenabrieb" → "Zitronen" (1 Zitrone = 1 Stück)
+- "Limettensaft" → "Limetten" (1 Limette ≈ 30ml Saft)
+- "Orangensaft frisch" → "Orangen" (1 Orange ≈ 80-100ml Saft)
+- "Knoblauchzehe" / "Zehe Knoblauch" → "Knoblauch" (1 Knolle hat ca. 10 Zehen, also 3 Zehen ≈ 0.3 Stück)
+- Wenn die gleiche Zutat aus verschiedenen Teilen stammt (z.B. Saft UND Schale einer Zitrone), zusammenfassen!
+- Zutaten die man direkt kaufen kann (Mehl, Öl, Butter etc.) bleiben unverändert im Namen.
+
+## Schritt 2: Konvertiere Einheiten
+NUR erlaubte Einheiten: "g", "ml", "Stück"
+- Feste/pulvrige Zutaten → "g" (1kg = 1000g, 1 EL Mehl ≈ 10g, 1 EL Zucker ≈ 13g, 1 EL Butter ≈ 15g)
+- Flüssige Zutaten IMMER → "ml" (1L = 1000ml, 1 EL = 15ml, 1 TL = 5ml)
+- Zählbare Einzelstücke → "Stück" (Zwiebeln, Eier, Dosen, Packungen)
+- "Bund" ist KEINE Stückzahl! Konvertiere zu "g": 1 Bund Petersilie ≈ 30g, 1 Bund Schnittlauch ≈ 25g, 1 Bund Dill ≈ 25g, 1 Bund Basilikum ≈ 30g, 1 Bund Koriander ≈ 30g, 1 Bund Minze ≈ 25g, 1 Bund Suppengrün ≈ 400g, 1 Bund Radieschen ≈ 200g, 1 Bund Frühlingszwiebeln ≈ 150g
+- WICHTIG: 1 TL ≈ 5g/5ml, 1 EL ≈ 15ml (aber Gewicht variiert je nach Zutat!)
+- Für Knoblauch in Knollen: Zehen ÷ 10 = Stück (NICHT aufrunden! 2 Zehen = 0.2 Stück, 3 Zehen = 0.3 Stück)
+- WICHTIG: "amount" darf Dezimalzahlen sein! NICHT aufrunden! Beispiele: 0.2, 0.5, 1.5 sind alle gültig.
+  Die Einkaufsliste summiert die Mengen mehrerer Rezepte — Genauigkeit ist wichtiger als runde Zahlen.
+
+## Schritt 3: Name
+- Immer im Plural: "Zwiebeln", "Zitronen", "Eier"
+- Auf Deutsch
+- Bevorzuge "Petersilie frisch" statt "Frische Petersilie"
+
+## Sonstiges
+- "Prise" ist KEINE ungenaue Menge! Konvertiere zu g.
+- Bei ungenauen Mengen ("etwas", "nach Geschmack", "nach Belieben"): amount: 1, unit: "NB"
+- "servings": Portionsanzahl aus dem Text, oder null
+- Ignoriere Zubereitungshinweise
+- Antworte NUR mit dem JSON-Objekt, ohne zusätzlichen Text`
+          },
+          { role: 'user', content: ingredientText }
+        ],
+        temperature: 0,
+      }),
+    ]);
+
+    function parseAIResponse(completion) {
+      const responseText = completion.choices[0]?.message?.content || '{"ingredients":[],"servings":null}';
       const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      parsed = JSON.parse(cleanedText);
-    } catch (parseError) {
-      console.error('Failed to parse OpenAI response:', responseText);
-      return res.status(500).json({ error: 'Fehler beim Parsen der KI-Antwort' });
+      const parsed = JSON.parse(cleanedText);
+
+      if (!parsed.ingredients || !Array.isArray(parsed.ingredients)) {
+        throw new Error('Ungültiges Format der KI-Antwort');
+      }
+
+      const validatedIngredients = parsed.ingredients
+        .map(ing => ({
+          name: String(ing.name || ''),
+          amount: Number(ing.amount) || 0,
+          unit: String(ing.unit || ''),
+        }))
+        .filter(ing => {
+          const nameLower = ing.name.toLowerCase().trim();
+          return nameLower !== 'salz' && nameLower !== 'pfeffer';
+        });
+
+      return { ingredients: validatedIngredients, servings: parsed.servings ? Number(parsed.servings) : null };
     }
 
-    // Validate the structure
-    if (!parsed.ingredients || !Array.isArray(parsed.ingredients)) {
-      return res.status(500).json({ error: 'Ungültiges Format der KI-Antwort' });
+    let displayResult, shoppingResult;
+    try {
+      displayResult = parseAIResponse(displayCompletion);
+    } catch (e) {
+      console.error('Failed to parse display ingredients:', e);
+      return res.status(500).json({ error: 'Fehler beim Parsen der Rezept-Zutaten' });
+    }
+    try {
+      shoppingResult = parseAIResponse(shoppingCompletion);
+    } catch (e) {
+      console.error('Failed to parse shopping ingredients:', e);
+      return res.status(500).json({ error: 'Fehler beim Parsen der Einkaufslisten-Zutaten' });
     }
 
-    // Ensure all ingredients have the required fields
-    const validatedIngredients = parsed.ingredients
-      .map(ing => ({
-        name: String(ing.name || ''),
-        amount: Number(ing.amount) || 0,
-        unit: String(ing.unit || ''),
-      }))
-      // Filter out Salz and Pfeffer
-      .filter(ing => {
-        const nameLower = ing.name.toLowerCase().trim();
-        return nameLower !== 'salz' && nameLower !== 'pfeffer';
-      });
+    const servings = displayResult.servings ?? shoppingResult.servings;
 
-    const servings = parsed.servings ? Number(parsed.servings) : null;
+    console.log(`✓ Parsed ${displayResult.ingredients.length} display + ${shoppingResult.ingredients.length} shopping ingredients${servings ? ` for ${servings} servings` : ''}`);
 
-    console.log(`✓ Parsed ${validatedIngredients.length} ingredients${servings ? ` for ${servings} servings` : ''}`);
-
-    res.json({ ingredients: validatedIngredients, servings });
+    res.json({
+      ingredients: displayResult.ingredients,
+      shoppingIngredients: shoppingResult.ingredients,
+      servings,
+    });
 
   } catch (error) {
     console.error('Error parsing ingredients:', error);
@@ -302,6 +366,148 @@ Regeln:
       error: 'Fehler beim Parsen der Zutaten',
       details: error.message
     });
+  }
+});
+
+// Clean up recipe text with AI
+app.post('/api/clean-recipe-text', requireAuth, async (req, res) => {
+  try {
+    const { recipeText } = req.body;
+
+    if (!recipeText || typeof recipeText !== 'string') {
+      return res.status(400).json({ error: 'recipeText is required' });
+    }
+
+    console.log('Cleaning recipe text...');
+
+    const completion = await openaiClient.chat.completions.create({
+      model: 'gpt-4.1',
+      messages: [
+        {
+          role: 'system',
+          content: `Du bist ein Assistent, der Rezept-Zubereitungstexte aufräumt und in ein sauberes, einheitliches Nur-Text-Format bringt.
+
+AUFGABE:
+Bereinige den eingegebenen Rezepttext und bringe ihn in folgendes Format:
+
+FORMAT:
+- Nummerierte Schritte (1., 2., 3., ...), durchgehend nummeriert
+- Ein Schritt = eine Aktion. Teile lange Schritte mit mehreren Aktionen auf.
+- Optionale Abschnittsüberschriften (z.B. "Vorbereitung", "Kochen", "Anrichten") in eigener Zeile OHNE Nummerierung — nur verwenden wenn es sinnvoll ist und der Text lang genug ist
+- Leerzeile zwischen Abschnitten
+- Zeitangaben in Klammern wo relevant: (ca. 3 Min.)
+- Temperaturangaben wo relevant: bei 180°C Ober-/Unterhitze
+
+BEREINIGUNG:
+- Entferne ALLES was kein Rezepttext ist: Bild-Alt-Texte, URLs, HTML-Tags, Werbung, Affiliate-Links, Cookie-Hinweise, Kommentare, Social-Media-Buttons etc.
+- Entferne Einleitungstexte und persönliche Anekdoten die nichts mit der Zubereitung zu tun haben
+- Behalte NUR die eigentlichen Zubereitungsschritte
+- Übersetze ins Deutsche falls der Text in einer anderen Sprache ist
+- Korrigiere offensichtliche Tipp-/OCR-Fehler
+- Verwende klare, prägnante Sprache
+
+WICHTIG:
+- Antworte NUR mit dem bereinigten Rezepttext, ohne zusätzliche Erklärungen oder Kommentare
+- Kein Markdown, kein HTML — nur reiner Text
+- Wenn der Text bereits sauber ist, gib ihn trotzdem im einheitlichen Format zurück`
+        },
+        { role: 'user', content: recipeText }
+      ],
+      temperature: 0,
+    });
+
+    const cleanedText = completion.choices[0]?.message?.content?.trim() || '';
+
+    if (!cleanedText) {
+      return res.status(500).json({ error: 'Leere Antwort von der KI' });
+    }
+
+    console.log('✓ Recipe text cleaned');
+    res.json({ cleanedText });
+
+  } catch (error) {
+    console.error('Error cleaning recipe text:', error);
+    res.status(500).json({
+      error: 'Fehler beim Bereinigen des Rezepttexts',
+      details: error.message
+    });
+  }
+});
+
+// Convert units endpoint — batch conversion with DB caching
+app.post('/api/convert-units', requireAuth, async (req, res) => {
+  try {
+    const { conversions } = req.body;
+    if (!Array.isArray(conversions) || conversions.length === 0) {
+      return res.status(400).json({ error: 'conversions Array ist erforderlich' });
+    }
+
+    const findStmt = db.prepare(
+      'SELECT factor FROM ingredient_conversions WHERE ingredient_name = ? AND from_unit = ? AND to_unit = ?'
+    );
+    const insertStmt = db.prepare(
+      'INSERT OR IGNORE INTO ingredient_conversions (ingredient_name, from_unit, to_unit, factor) VALUES (?, ?, ?, ?)'
+    );
+
+    const results = [];
+
+    for (const { ingredient, fromUnit, toUnit } of conversions) {
+      if (!ingredient || !fromUnit || !toUnit) continue;
+      if (fromUnit === toUnit) {
+        results.push({ ingredient, fromUnit, toUnit, factor: 1 });
+        continue;
+      }
+
+      const normalizedName = ingredient.toLowerCase().trim();
+
+      // Check cache
+      const cached = findStmt.get(normalizedName, fromUnit, toUnit);
+      if (cached) {
+        results.push({ ingredient, fromUnit, toUnit, factor: cached.factor });
+        continue;
+      }
+
+      // Call OpenAI for conversion
+      try {
+        const completion = await openaiClient.chat.completions.create({
+          model: 'gpt-4.1-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `Du bist ein Küchenrechner. Beantworte NUR mit einer Zahl (dem Umrechnungsfaktor).
+Frage: Wie viel ${toUnit} entspricht 1 ${fromUnit} "${ingredient}"?
+Antworte NUR mit der Zahl, ohne Einheit und ohne Text. Wenn die Umrechnung nicht möglich ist, antworte mit 0.`
+            },
+            {
+              role: 'user',
+              content: `1 ${fromUnit} ${ingredient} = ? ${toUnit}`
+            }
+          ],
+          temperature: 0,
+        });
+
+        const factorText = completion.choices[0]?.message?.content?.trim() || '0';
+        const factor = parseFloat(factorText) || 0;
+
+        if (factor > 0) {
+          insertStmt.run(normalizedName, fromUnit, toUnit, factor);
+          // Also cache the reverse
+          if (factor !== 0) {
+            insertStmt.run(normalizedName, toUnit, fromUnit, 1 / factor);
+          }
+        }
+
+        results.push({ ingredient, fromUnit, toUnit, factor });
+      } catch (aiError) {
+        console.error(`Conversion AI error for ${ingredient} ${fromUnit}->${toUnit}:`, aiError.message);
+        results.push({ ingredient, fromUnit, toUnit, factor: 0 });
+      }
+    }
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Convert units error:', error);
+    res.status(500).json({ error: 'Fehler bei der Einheitenkonvertierung' });
   }
 });
 

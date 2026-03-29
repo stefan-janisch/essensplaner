@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { useMealPlan } from '../context/MealPlanContext';
-import { RecipeCard, RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
+import { RecipeCard, RecipeDetailModal, EditRecipeModal, CreateRecipeModal } from './RecipeManagement';
 import { getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS, parseTag } from '../constants/tags';
 import type { Meal } from '../types/index.js';
@@ -40,7 +40,13 @@ function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit
         dragHandleProps={{ ...listeners, ...attributes }}
       />
       {showRecipe && (
-        <RecipeDetailModal meal={meal} onClose={() => setShowRecipe(false)} />
+        <RecipeDetailModal
+          meal={meal}
+          onClose={() => setShowRecipe(false)}
+          onEdit={() => { setShowRecipe(false); onEdit(); }}
+          onToggleStar={() => toggleMealStar(meal.id)}
+          onSetRating={onSetRating}
+        />
       )}
     </div>
   );
@@ -57,6 +63,7 @@ export const MealHistory: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [showFilters, setShowFilters] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
     + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
@@ -96,7 +103,10 @@ export const MealHistory: React.FC = () => {
           if (!groupTags.some(t => meal.tags?.includes(t))) return false;
         }
       }
-      if (maxPrepTime && (!meal.prepTime || meal.prepTime > maxPrepTime)) return false;
+      if (maxPrepTime) {
+        const effectivePrepTime = meal.prepTime ?? meal.totalTime;
+        if (!effectivePrepTime || effectivePrepTime > maxPrepTime) return false;
+      }
       if (maxTotalTime && (!meal.totalTime || meal.totalTime > maxTotalTime)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -139,8 +149,11 @@ export const MealHistory: React.FC = () => {
   };
 
   return (
-    <div className="panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h3 style={{ marginTop: 0, color: 'var(--text-h)' }}>Rezepte ({filteredMeals.length})</h3>
+    <div className="panel" style={{ height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Rezepte ({filteredMeals.length})</h3>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>+ Neu</button>
+      </div>
 
       <input
         className="input"
@@ -268,6 +281,9 @@ export const MealHistory: React.FC = () => {
 
       {editingMeal && (
         <EditRecipeModal meal={editingMeal} onClose={() => setEditingMeal(null)} />
+      )}
+      {showCreate && (
+        <CreateRecipeModal onClose={() => setShowCreate(false)} />
       )}
     </div>
   );

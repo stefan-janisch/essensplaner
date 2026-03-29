@@ -8,7 +8,6 @@ import { MigrationPrompt } from './components/MigrationPrompt';
 import { DateRangeSelector } from './components/DateRangeSelector';
 import { MealPlanTable } from './components/MealPlanTable';
 import { MealHistory } from './components/MealHistory';
-import { AddMealForm } from './components/AddMealForm';
 import { ShoppingList } from './components/ShoppingList';
 import { MealPlanOverview } from './components/MealPlanOverview';
 import { RecipeManagement } from './components/RecipeManagement';
@@ -59,11 +58,10 @@ function MealPlannerContent({ onBack }: { onBack: () => void }) {
         <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
           <div>
             <MealPlanTable />
-            <AddMealForm />
             <ShoppingList />
           </div>
 
-          <div>
+          <div style={{ position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 200px)', overflow: 'hidden' }}>
             <MealHistory />
           </div>
         </div>

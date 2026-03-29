@@ -140,7 +140,20 @@ export function RecipeDetailModal({
   onToggleStar?: () => void;
   onSetRating?: (rating: number) => void;
 }) {
+  const { updateMeal } = useMealPlan();
+  const [editingComment, setEditingComment] = useState(false);
+  const [commentText, setCommentText] = useState(meal.comment || '');
   const displayServings = servings ?? meal.defaultServings;
+
+  const handleSaveComment = () => {
+    const newComment = commentText.trim() || undefined;
+    if (newComment !== (meal.comment || undefined)) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _, ...mealWithoutId } = meal;
+      updateMeal(meal.id, { ...mealWithoutId, comment: newComment });
+    }
+    setEditingComment(false);
+  };
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '700px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
@@ -207,12 +220,38 @@ export function RecipeDetailModal({
           )}
         </div>
 
-        {meal.comment && (
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ fontSize: '14px', color: 'var(--text-h)' }}>Kommentar</strong>
-            <p style={{ margin: '4px 0', fontSize: '14px', color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{meal.comment}</p>
-          </div>
-        )}
+        <div style={{ marginBottom: '16px' }}>
+          {editingComment ? (
+            <div>
+              <textarea
+                className="textarea"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onBlur={handleSaveComment}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setCommentText(meal.comment || ''); setEditingComment(false); } }}
+                autoFocus
+                rows={3}
+                style={{ width: '100%', fontStyle: 'italic', fontSize: '14px' }}
+                placeholder="Kommentar hinzufügen..."
+              />
+            </div>
+          ) : (
+            <p
+              onClick={() => { setCommentText(meal.comment || ''); setEditingComment(true); }}
+              style={{
+                margin: 0,
+                fontSize: '14px',
+                whiteSpace: 'pre-wrap',
+                fontStyle: 'italic',
+                color: meal.comment ? 'var(--text)' : 'var(--color-muted)',
+                cursor: 'pointer',
+              }}
+              title="Klicken zum Bearbeiten"
+            >
+              {meal.comment || 'Kommentar hinzufügen...'}
+            </p>
+          )}
+        </div>
 
         <div style={{ display: meal.recipeText ? 'grid' : 'block', gridTemplateColumns: meal.recipeText ? '1fr 2fr' : '1fr', gap: '20px' }}>
           <div style={{ textAlign: 'left' }}>
@@ -222,7 +261,7 @@ export function RecipeDetailModal({
                 const scaled = ing.amount * (displayServings / meal.defaultServings);
                 return (
                   <li key={i}>
-                    {ing.unit === 'Nach Belieben'
+                    {ing.unit === 'NB' || ing.unit === 'Nach Belieben'
                       ? `${ing.name} (nach Belieben)`
                       : `${Number(scaled.toFixed(1))} ${ing.unit} ${ing.name}`}
                   </li>
@@ -260,7 +299,7 @@ export function EditRecipeModal({ meal, onClose }: { meal: Meal; onClose: () => 
 
   return (
     <div className="modal-backdrop">
-      <div className="modal-content" style={{ maxWidth: '600px', width: '90%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" style={{ maxWidth: '900px', width: '90%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid var(--border-light)', flexShrink: 0 }}>
           <h3 style={{ margin: 0 }}>Rezept bearbeiten</h3>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -284,7 +323,7 @@ export function EditRecipeModal({ meal, onClose }: { meal: Meal; onClose: () => 
   );
 }
 
-function CreateRecipeModal({ onClose }: { onClose: () => void }) {
+export function CreateRecipeModal({ onClose }: { onClose: () => void }) {
   const { state, addMeal, uploadMealPhoto, downloadMealPhotoFromUrl } = useMealPlan();
   const allUserTags = useMemo(() => state.meals.flatMap(m => m.tags || []), [state.meals]);
 
@@ -302,7 +341,7 @@ function CreateRecipeModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop">
-      <div className="modal-content" style={{ maxWidth: '600px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" style={{ maxWidth: '900px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={{ margin: 0 }}>Neues Rezept</h3>
           <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>×</button>
@@ -543,7 +582,11 @@ export const RecipeManagement: React.FC = () => {
           if (!groupTags.some(t => meal.tags?.includes(t))) return false;
         }
       }
-      if (maxPrepTime && (!meal.prepTime || meal.prepTime > maxPrepTime)) return false;
+      // Active time filter: use totalTime as fallback (active ≤ total always holds)
+      if (maxPrepTime) {
+        const effectivePrepTime = meal.prepTime ?? meal.totalTime;
+        if (!effectivePrepTime || effectivePrepTime > maxPrepTime) return false;
+      }
       if (maxTotalTime && (!meal.totalTime || meal.totalTime > maxTotalTime)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();

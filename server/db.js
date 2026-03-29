@@ -58,4 +58,78 @@ if (version < 2) {
   console.log('✓ Migration v2 complete');
 }
 
+if (version < 3) {
+  console.log('Running migration v3: dual ingredient lists + conversion cache...');
+  const cols = db.prepare("PRAGMA table_info(meals)").all().map(c => c.name);
+  if (!cols.includes('shopping_ingredients')) {
+    db.exec('ALTER TABLE meals ADD COLUMN shopping_ingredients TEXT');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ingredient_conversions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ingredient_name TEXT NOT NULL,
+      from_unit TEXT NOT NULL,
+      to_unit TEXT NOT NULL,
+      factor REAL NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(ingredient_name, from_unit, to_unit)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conv_name ON ingredient_conversions(ingredient_name);
+  `);
+  db.pragma('user_version = 3');
+  console.log('✓ Migration v3 complete');
+}
+
+if (version < 4) {
+  console.log('Running migration v4: archived meal plans...');
+  const cols = db.prepare("PRAGMA table_info(meal_plans)").all().map(c => c.name);
+  if (!cols.includes('archived')) {
+    db.exec('ALTER TABLE meal_plans ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  }
+  db.pragma('user_version = 4');
+  console.log('✓ Migration v4 complete');
+}
+
+if (version < 5) {
+  console.log('Running migration v5: extras meal types (snacks, drinks, misc)...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meal_plan_entries_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'misc')),
+      meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+      servings INTEGER NOT NULL DEFAULT 2,
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT INTO meal_plan_entries_new (id, plan_id, date, meal_type, meal_id, servings, enabled)
+      SELECT id, plan_id, date, meal_type, meal_id, servings, enabled
+      FROM meal_plan_entries;
+    DROP TABLE meal_plan_entries;
+    ALTER TABLE meal_plan_entries_new RENAME TO meal_plan_entries;
+    CREATE INDEX idx_entries_plan_id ON meal_plan_entries(plan_id);
+    CREATE INDEX idx_entries_slot ON meal_plan_entries(plan_id, date, meal_type);
+  `);
+  db.pragma('user_version = 5');
+  console.log('✓ Migration v5 complete');
+}
+
+if (version < 6) {
+  console.log('Running migration v6: plan extras table...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plan_extras (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      category TEXT NOT NULL CHECK(category IN ('snacks', 'drinks', 'misc')),
+      name TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 1,
+      unit TEXT NOT NULL DEFAULT 'Stück',
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_extras_plan_id ON plan_extras(plan_id);
+  `);
+  db.pragma('user_version = 6');
+  console.log('✓ Migration v6 complete');
+}
+
 export default db;

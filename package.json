@@ -17,6 +17,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@iarna/toml": "^2.2.5",
+    "@types/react-date-range": "^1.4.10",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.8.0",
     "better-sqlite3-session-store": "^0.1.0",
@@ -29,6 +30,7 @@
     "multer": "^2.1.1",
     "openai": "^6.33.0",
     "react": "^19.2.4",
+    "react-date-range": "^2.0.1",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {

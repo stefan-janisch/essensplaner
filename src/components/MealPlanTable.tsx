@@ -3,8 +3,8 @@ import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { format, parseISO, eachDayOfInterval } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { useMealPlan } from '../context/MealPlanContext';
-import { RecipeDetailModal } from './RecipeManagement';
-import type { MealType, Meal, MealPlanEntry } from '../types/index.js';
+import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
+import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
 
 interface MealCellItemProps {
   entry: MealPlanEntry;
@@ -12,10 +12,11 @@ interface MealCellItemProps {
 }
 
 const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
-  const { removeEntry, toggleEntryEnabled, updateEntryServings } = useMealPlan();
+  const { removeEntry, toggleEntryEnabled, updateEntryServings, toggleMealStar, updateMeal } = useMealPlan();
   const [isEditing, setIsEditing] = useState(false);
   const [editServings, setEditServings] = useState(entry.servings);
   const [showRecipeCard, setShowRecipeCard] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `entry:${entry.id}`,
@@ -128,7 +129,17 @@ const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
           meal={meal}
           servings={entry.servings}
           onClose={() => setShowRecipeCard(false)}
+          onEdit={() => { setShowRecipeCard(false); setShowEdit(true); }}
+          onToggleStar={() => toggleMealStar(meal.id)}
+          onSetRating={(r) => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { id: _, ...rest } = meal;
+            updateMeal(meal.id, { ...rest, rating: r || undefined });
+          }}
         />
+      )}
+      {showEdit && (
+        <EditRecipeModal meal={meal} onClose={() => setShowEdit(false)} />
       )}
     </div>
   );
@@ -176,6 +187,132 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
   );
 };
 
+const ExtraItemRow: React.FC<{ item: ExtraItem }> = ({ item }) => {
+  const { updateExtra, removeExtra } = useMealPlan();
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px',
+      padding: '3px 0', borderBottom: '1px solid var(--border-light)',
+      opacity: item.enabled ? 1 : 0.4,
+    }}>
+      <span style={{ flex: 1, fontSize: '13px', fontWeight: 500 }}>{item.name}</span>
+      <span style={{ fontSize: '12px', color: 'var(--text)', whiteSpace: 'nowrap' }}>
+        {item.amount} {item.unit}
+      </span>
+      <button
+        className="btn-ghost"
+        onClick={() => updateExtra(item.id, { enabled: !item.enabled })}
+        style={{ fontSize: '12px', padding: '1px 4px', flexShrink: 0 }}
+        title={item.enabled ? 'Deaktivieren' : 'Aktivieren'}
+      >
+        {item.enabled ? '✓' : '✗'}
+      </button>
+      <button
+        className="btn-ghost"
+        onClick={() => removeExtra(item.id)}
+        style={{ fontSize: '12px', padding: '1px 4px', flexShrink: 0, color: 'var(--color-danger)' }}
+        title="Entfernen"
+      >
+        ✗
+      </button>
+    </div>
+  );
+};
+
+const ExtrasCell: React.FC<{ category: ExtraItem['category'] }> = ({ category }) => {
+  const { activePlan, addExtra, allMealsForActivePlan } = useMealPlan();
+  const [name, setName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [unit, setUnit] = useState('Stück');
+
+  const extras = (activePlan?.extras || []).filter(e => e.category === category);
+
+  // Also show meal cards dropped into this category
+  const entries = (activePlan?.entries || []).filter(
+    e => e.date === '_extras' && e.mealType === category
+  );
+
+  const { setNodeRef, isOver } = useDroppable({
+    id: `_extras-${category}`,
+    data: { date: '_extras', mealType: category },
+  });
+
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    addExtra(category, name.trim(), parseFloat(amount) || 1, unit || 'Stück');
+    setName('');
+    setAmount('');
+    setUnit('Stück');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAdd();
+    }
+  };
+
+  return (
+    <td
+      ref={setNodeRef}
+      style={{
+        minHeight: '80px',
+        backgroundColor: isOver ? 'var(--surface-drop)' : undefined,
+        verticalAlign: 'top',
+      }}
+    >
+      {entries.map(entry => {
+        const meal = allMealsForActivePlan.find(m => m.id === entry.mealId);
+        if (!meal) return null;
+        return <MealCellItem key={entry.id} entry={entry} meal={meal} />;
+      })}
+
+      {extras.map(item => (
+        <ExtraItemRow key={item.id} item={item} />
+      ))}
+
+      <div style={{ display: 'flex', gap: '3px', marginTop: '6px' }}>
+        <input
+          className="input"
+          type="text"
+          placeholder="Bezeichnung"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          style={{ flex: 2, padding: '3px 6px', fontSize: '12px' }}
+        />
+        <input
+          className="input"
+          type="number"
+          placeholder="Menge"
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
+          onKeyDown={handleKeyDown}
+          style={{ width: '50px', minWidth: '50px', padding: '3px 6px', fontSize: '12px' }}
+        />
+        <input
+          className="input"
+          type="text"
+          placeholder="Einh."
+          value={unit}
+          onChange={e => setUnit(e.target.value)}
+          onKeyDown={handleKeyDown}
+          style={{ width: '50px', minWidth: '50px', padding: '3px 6px', fontSize: '12px' }}
+        />
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={handleAdd}
+          disabled={!name.trim()}
+          style={{ padding: '3px 8px', fontSize: '12px' }}
+        >
+          +
+        </button>
+      </div>
+    </td>
+  );
+};
+
 export const MealPlanTable: React.FC = () => {
   const { activePlan } = useMealPlan();
 
@@ -217,6 +354,23 @@ export const MealPlanTable: React.FC = () => {
               <MealCell date={date} mealType="dinner" />
             </tr>
           ))}
+        </tbody>
+      </table>
+
+      <table className="meal-table" style={{ marginTop: '24px' }}>
+        <thead>
+          <tr>
+            <th>Snacks</th>
+            <th>Getränke</th>
+            <th>Sonstiges</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <ExtrasCell category="snacks" />
+            <ExtrasCell category="drinks" />
+            <ExtrasCell category="misc" />
+          </tr>
         </tbody>
       </table>
     </div>

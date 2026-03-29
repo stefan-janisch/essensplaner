@@ -17,12 +17,24 @@ function rowToEntry(row) {
   };
 }
 
+function rowToExtra(row) {
+  return {
+    id: row.id,
+    category: row.category,
+    name: row.name,
+    amount: row.amount,
+    unit: row.unit,
+    enabled: row.enabled === 1,
+  };
+}
+
 function rowToPlan(row, userId) {
   return {
     id: row.id,
     name: row.name,
     startDate: row.start_date,
     endDate: row.end_date,
+    archived: row.archived === 1,
     createdAt: row.created_at,
     isOwner: row.user_id === userId,
     ownerEmail: row.owner_email || null,
@@ -34,6 +46,7 @@ function rowToMeal(row) {
     id: row.id,
     name: row.name,
     ingredients: JSON.parse(row.ingredients),
+    shoppingIngredients: row.shopping_ingredients ? JSON.parse(row.shopping_ingredients) : undefined,
     defaultServings: row.default_servings,
     starred: row.starred === 1,
     rating: row.rating,
@@ -78,7 +91,19 @@ router.get('/', (req, res) => {
     WHERE pc.user_id = ?
     ORDER BY created_at DESC
   `).all(req.userId, req.userId);
-  res.json(rows.map(r => rowToPlan(r, req.userId)));
+
+  const entryCountStmt = db.prepare('SELECT COUNT(*) as cnt FROM meal_plan_entries WHERE plan_id = ?');
+  const collabStmt = db.prepare(`
+    SELECT u.id, u.email FROM plan_collaborators pc
+    JOIN users u ON u.id = pc.user_id
+    WHERE pc.plan_id = ?
+  `);
+
+  res.json(rows.map(r => ({
+    ...rowToPlan(r, req.userId),
+    entryCount: entryCountStmt.get(r.id).cnt,
+    collaborators: collabStmt.all(r.id),
+  })));
 });
 
 // Create plan
@@ -135,12 +160,17 @@ router.get('/:planId', (req, res) => {
     WHERE pc.plan_id = ?
   `).all(plan.id);
 
+  const extras = db.prepare(
+    'SELECT * FROM plan_extras WHERE plan_id = ?'
+  ).all(plan.id);
+
   const ownerRow = db.prepare('SELECT email FROM users WHERE id = ?').get(plan.user_id);
 
   res.json({
     ...rowToPlan(plan, req.userId),
     ownerEmail: ownerRow?.email || null,
     entries: entries.map(rowToEntry),
+    extras: extras.map(rowToExtra),
     sharedMeals,
     collaborators,
   });
@@ -153,14 +183,15 @@ router.put('/:planId', (req, res) => {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
-  const { name, startDate, endDate } = req.body;
+  const { name, startDate, endDate, archived } = req.body;
 
   db.prepare(
-    'UPDATE meal_plans SET name = ?, start_date = ?, end_date = ? WHERE id = ?'
+    'UPDATE meal_plans SET name = ?, start_date = ?, end_date = ?, archived = ? WHERE id = ?'
   ).run(
     name ?? plan.name,
     startDate !== undefined ? startDate : plan.start_date,
     endDate !== undefined ? endDate : plan.end_date,
+    archived !== undefined ? (archived ? 1 : 0) : plan.archived,
     plan.id
   );
 
@@ -288,6 +319,68 @@ router.put('/:planId/entries/:entryId/move', (req, res) => {
     console.error('Move entry error:', err);
     res.status(500).json({ error: 'Eintrag konnte nicht verschoben werden' });
   }
+});
+
+// --- Extras (free-form items) ---
+
+// Add extra item
+router.post('/:planId/extras', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  try {
+    const { category, name, amount, unit } = req.body;
+    if (!category || !name) {
+      return res.status(400).json({ error: 'category und name sind erforderlich' });
+    }
+
+    const result = db.prepare(
+      'INSERT INTO plan_extras (plan_id, category, name, amount, unit) VALUES (?, ?, ?, ?, ?)'
+    ).run(plan.id, category, name, amount ?? 1, unit ?? 'Stück');
+
+    const row = db.prepare('SELECT * FROM plan_extras WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(rowToExtra(row));
+  } catch (err) {
+    console.error('Add extra error:', err);
+    res.status(500).json({ error: 'Eintrag konnte nicht erstellt werden' });
+  }
+});
+
+// Update extra item
+router.put('/:planId/extras/:extraId', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  const extra = db.prepare('SELECT * FROM plan_extras WHERE id = ? AND plan_id = ?')
+    .get(req.params.extraId, plan.id);
+  if (!extra) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
+
+  const { name, amount, unit, enabled } = req.body;
+  db.prepare(
+    'UPDATE plan_extras SET name = ?, amount = ?, unit = ?, enabled = ? WHERE id = ?'
+  ).run(
+    name !== undefined ? name : extra.name,
+    amount !== undefined ? amount : extra.amount,
+    unit !== undefined ? unit : extra.unit,
+    enabled !== undefined ? (enabled ? 1 : 0) : extra.enabled,
+    extra.id
+  );
+
+  const row = db.prepare('SELECT * FROM plan_extras WHERE id = ?').get(extra.id);
+  res.json(rowToExtra(row));
+});
+
+// Delete extra item
+router.delete('/:planId/extras/:extraId', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  const extra = db.prepare('SELECT * FROM plan_extras WHERE id = ? AND plan_id = ?')
+    .get(req.params.extraId, plan.id);
+  if (!extra) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
+
+  db.prepare('DELETE FROM plan_extras WHERE id = ?').run(extra.id);
+  res.json({ ok: true });
 });
 
 // --- Share management (owner only) ---

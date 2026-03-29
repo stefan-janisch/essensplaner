@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
-import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType } from '../types/index.js';
+import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem } from '../types/index.js';
 
 interface MealPlanContextType {
   state: MealPlanState;
@@ -13,10 +13,11 @@ interface MealPlanContextType {
   setDefaultServings: (servings: number) => void;
 
   // Plan management
-  createPlan: (name: string, startDate: Date, endDate: Date) => Promise<void>;
+  createPlan: (name: string, startDate: Date, endDate: Date) => Promise<number>;
   selectPlan: (planId: number) => void;
   deletePlan: (planId: number) => Promise<void>;
   renamePlan: (planId: number, name: string) => Promise<void>;
+  archivePlan: (planId: number, archived: boolean) => Promise<void>;
   resetMealPlan: () => Promise<void>;
   joinSharedPlan: (token: string) => Promise<number>;
   leavePlan: (planId: number) => Promise<void>;
@@ -43,6 +44,11 @@ interface MealPlanContextType {
   updateEntryServings: (entryId: number, servings: number) => void;
   moveEntry: (entryId: number, toDate: string, toMealType: MealType) => void;
   renameIngredientInAllMeals: (oldName: string, newName: string) => void;
+
+  // Extras (free-form items)
+  addExtra: (category: ExtraItem['category'], name: string, amount: number, unit: string) => void;
+  updateExtra: (extraId: number, updates: Partial<Pick<ExtraItem, 'name' | 'amount' | 'unit' | 'enabled'>>) => void;
+  removeExtra: (extraId: number) => void;
 }
 
 const MealPlanContext = createContext<MealPlanContextType | undefined>(undefined);
@@ -126,12 +132,13 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       endDate: format(endDate, 'yyyy-MM-dd'),
     });
 
-    const fullPlan: MealPlan = { ...plan, entries: [] };
+    const fullPlan: MealPlan = { ...plan, entries: [], extras: [] };
     setState(prev => ({
       ...prev,
       plans: [fullPlan, ...prev.plans],
       activePlanId: plan.id,
     }));
+    return plan.id;
   }, []);
 
   const selectPlan = useCallback(async (planId: number) => {
@@ -171,6 +178,15 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     setState(prev => ({
       ...prev,
       plans: prev.plans.map(p => p.id === planId ? { ...p, name: updated.name } : p),
+    }));
+  }, []);
+
+  const archivePlan = useCallback(async (planId: number, archived: boolean) => {
+    await api.put<MealPlan>(`/api/plans/${planId}`, { archived });
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p => p.id === planId ? { ...p, archived } : p),
+      activePlanId: prev.activePlanId === planId && archived ? null : prev.activePlanId,
     }));
   }, []);
 
@@ -234,6 +250,17 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }));
   }, []);
 
+  const updateActivePlanExtras = useCallback((updater: (extras: ExtraItem[]) => ExtraItem[]) => {
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p =>
+        p.id === prev.activePlanId
+          ? { ...p, extras: updater(p.extras || []) }
+          : p
+      ),
+    }));
+  }, []);
+
   // --- Meal CRUD ---
 
   const addMeal = useCallback(async (meal: Omit<Meal, 'id'>): Promise<Meal | null> => {
@@ -263,10 +290,14 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const updateMeal = useCallback(async (mealId: string, updatedMeal: Omit<Meal, 'id'>) => {
     const prev = state.meals;
-    // Optimistic update
+    // Optimistic update — merge with existing meal, stripping undefined values
+    // to preserve fields not in the form (e.g. photoUrl)
+    const defined = Object.fromEntries(
+      Object.entries(updatedMeal).filter(([, v]) => v !== undefined)
+    );
     setState(s => ({
       ...s,
-      meals: s.meals.map(m => m.id === mealId ? { ...updatedMeal, id: mealId } : m),
+      meals: s.meals.map(m => m.id === mealId ? { ...m, ...defined, id: mealId } : m),
     }));
     try {
       await api.put<Meal>(`/api/meals/${mealId}`, updatedMeal);
@@ -419,6 +450,41 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     });
   }, [state.activePlanId, updateActivePlanEntries]);
 
+  // --- Extras (free-form items) ---
+
+  const addExtra = useCallback((category: ExtraItem['category'], name: string, amount: number, unit: string) => {
+    if (!state.activePlanId) return;
+
+    const tempId = -Date.now();
+    const newExtra: ExtraItem = { id: tempId, category, name, amount, unit, enabled: true };
+    updateActivePlanExtras(extras => [...extras, newExtra]);
+
+    api.post<ExtraItem>(`/api/plans/${state.activePlanId}/extras`, { category, name, amount, unit })
+      .then(serverExtra => {
+        updateActivePlanExtras(extras => extras.map(e => e.id === tempId ? serverExtra : e));
+      })
+      .catch(err => {
+        console.error('Add extra failed:', err);
+        updateActivePlanExtras(extras => extras.filter(e => e.id !== tempId));
+      });
+  }, [state.activePlanId, updateActivePlanExtras]);
+
+  const updateExtra = useCallback((extraId: number, updates: Partial<Pick<ExtraItem, 'name' | 'amount' | 'unit' | 'enabled'>>) => {
+    if (!state.activePlanId) return;
+    updateActivePlanExtras(extras => extras.map(e => e.id === extraId ? { ...e, ...updates } : e));
+    api.put(`/api/plans/${state.activePlanId}/extras/${extraId}`, updates).catch(err => {
+      console.error('Update extra failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanExtras]);
+
+  const removeExtra = useCallback((extraId: number) => {
+    if (!state.activePlanId) return;
+    updateActivePlanExtras(extras => extras.filter(e => e.id !== extraId));
+    api.delete(`/api/plans/${state.activePlanId}/extras/${extraId}`).catch(err => {
+      console.error('Remove extra failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanExtras]);
+
   const renameIngredientInAllMeals = useCallback((oldName: string, newName: string) => {
     if (!oldName.trim() || !newName.trim() || oldName === newName) return;
 
@@ -428,6 +494,9 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       meals: prev.meals.map(meal => ({
         ...meal,
         ingredients: meal.ingredients.map(ing =>
+          ing.name === oldName ? { ...ing, name: newName } : ing
+        ),
+        shoppingIngredients: meal.shoppingIngredients?.map(ing =>
           ing.name === oldName ? { ...ing, name: newName } : ing
         ),
       })),
@@ -463,6 +532,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         selectPlan,
         deletePlan,
         renamePlan,
+        archivePlan,
         resetMealPlan,
         joinSharedPlan,
         leavePlan,
@@ -481,6 +551,9 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         updateEntryServings,
         moveEntry,
         renameIngredientInAllMeals,
+        addExtra,
+        updateExtra,
+        removeExtra,
       }}
     >
       {children}

@@ -23,7 +23,7 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
       </button>
 
       {/* Center: title + date range */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', textAlign: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
         <strong style={{ fontSize: '16px', color: 'var(--text-h)' }}>{activePlan.name}</strong>
         {activePlan.startDate && activePlan.endDate && (
           <span style={{ color: 'var(--text)', fontSize: '14px' }}>
@@ -31,7 +31,7 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
           </span>
         )}
         {activePlan.isOwner === false && activePlan.ownerEmail && (
-          <span style={{ fontSize: '12px', color: 'var(--accent)', padding: '2px 8px', borderRadius: '10px', background: 'var(--accent-bg)' }}>
+          <span style={{ fontSize: '12px', color: 'var(--accent)', padding: '2px 8px', borderRadius: '10px', background: 'var(--accent-bg)', marginTop: '2px' }}>
             Geteilt von {activePlan.ownerEmail}
           </span>
         )}

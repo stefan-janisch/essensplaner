@@ -58,7 +58,7 @@ Session secret read from `SESSION_SECRET` env var.
 ### Key design decisions
 
 - All LLM prompts are in German and instruct the model to return German ingredient names.
-- Ingredient units are restricted to three values: `"g"`, `"ml"`, `"Stück"` (plus `"Nach Belieben"` for taste-based amounts).
+- Ingredient units are restricted to three values: `"g"`, `"ml"`, `"Stück"` (plus `"NB"` for taste-based amounts).
 - Meals have `defaultServings`; plan entries have their own `servings` count — the shopping list scales proportionally.
 - Ingredients stored as JSON column on meals table (not normalized).
 - Meals have optional fields: `rating` (1-5), `category`, `tags` (JSON array), `photoUrl`.

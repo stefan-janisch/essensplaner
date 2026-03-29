@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
-import { generateShoppingList } from '../utils/shoppingListAggregator';
+import { generateShoppingList, mergeUnitsInShoppingList } from '../utils/shoppingListAggregator';
+import type { AggregatedIngredient } from '../utils/shoppingListAggregator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -9,9 +10,57 @@ export const ShoppingList: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [infoIndex, setInfoIndex] = useState<number | null>(null);
+  const [mergedList, setMergedList] = useState<AggregatedIngredient[] | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
 
   const entries = activePlan?.entries || [];
-  const shoppingList = generateShoppingList(entries, allMealsForActivePlan);
+  const extras = activePlan?.extras || [];
+  const shoppingList = generateShoppingList(entries, allMealsForActivePlan, extras);
+
+  // Async unit merging when expanded
+  const runMerge = useCallback(async (list: AggregatedIngredient[]) => {
+    const needsMerge = list.some(item => item.amounts.length > 1);
+    if (!needsMerge) {
+      setMergedList(list);
+      return;
+    }
+    setIsMerging(true);
+    try {
+      const merged = await mergeUnitsInShoppingList(list);
+      setMergedList(merged);
+    } catch {
+      setMergedList(list);
+    } finally {
+      setIsMerging(false);
+    }
+  }, []);
+
+  const shoppingListKey = JSON.stringify(shoppingList.map(i => ({ n: i.name, a: i.amounts })));
+
+  useEffect(() => {
+    if (isExpanded && shoppingList.length > 0) {
+      runMerge(shoppingList);
+    } else {
+      setMergedList(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded, shoppingListKey, runMerge]);
+
+  // Close info popup on outside click
+  useEffect(() => {
+    if (infoIndex === null) return;
+    const handleClick = (e: MouseEvent) => {
+      if (infoRef.current && !infoRef.current.contains(e.target as Node)) {
+        setInfoIndex(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [infoIndex]);
+
+  const displayList = mergedList || shoppingList;
 
   const handlePrint = () => {
     const printWindow = window.open('', '', 'width=800,height=600');
@@ -33,7 +82,7 @@ export const ShoppingList: React.FC = () => {
         <body>
           <h1>Einkaufsliste</h1>
           <ul>
-            ${shoppingList
+            ${displayList
               .map(
                 item =>
                   `<li>
@@ -55,7 +104,7 @@ export const ShoppingList: React.FC = () => {
   };
 
   const handleCopyToClipboard = () => {
-    const text = shoppingList
+    const text = displayList
       .map(item => {
         const amounts = item.amounts.map(a => `${a.amount} ${a.unit}`).join(', ');
         return `${item.name}: ${amounts}`;
@@ -76,7 +125,7 @@ export const ShoppingList: React.FC = () => {
     const input = document.createElement('input');
     input.type = 'hidden';
     input.name = 'shoppingList';
-    input.value = JSON.stringify(shoppingList);
+    input.value = JSON.stringify(displayList);
 
     form.appendChild(input);
     document.body.appendChild(form);
@@ -91,6 +140,14 @@ export const ShoppingList: React.FC = () => {
 
   const handleSaveEdit = (oldName: string) => {
     if (editingName.trim() && editingName !== oldName) {
+      const confirmed = window.confirm(
+        `"${oldName}" wird in allen Rezepten zu "${editingName.trim()}" umbenannt. Fortfahren?`
+      );
+      if (!confirmed) {
+        setEditingIndex(null);
+        setEditingName('');
+        return;
+      }
       renameIngredientInAllMeals(oldName, editingName.trim());
     }
     setEditingIndex(null);
@@ -119,7 +176,10 @@ export const ShoppingList: React.FC = () => {
       ) : (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Einkaufsliste</h3>
+            <h3 style={{ margin: 0, color: 'var(--text-h)' }}>
+              Einkaufsliste
+              {isMerging && <span style={{ fontSize: '13px', color: 'var(--text)', marginLeft: '10px' }}>Einheiten werden zusammengefasst...</span>}
+            </h3>
             <button className="btn-ghost" onClick={() => setIsExpanded(false)} style={{ fontSize: '20px' }}>
               ✕
             </button>
@@ -139,12 +199,13 @@ export const ShoppingList: React.FC = () => {
 
           <div className="card" style={{ padding: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
             <ul style={{ listStyleType: 'none', padding: 0, margin: 0 }}>
-              {shoppingList.map((item, index) => (
+              {displayList.map((item, index) => (
                 <li
                   key={index}
                   style={{
                     padding: '10px',
-                    borderBottom: index < shoppingList.length - 1 ? '1px solid var(--border-light)' : 'none',
+                    borderBottom: index < displayList.length - 1 ? '1px solid var(--border-light)' : 'none',
+                    position: 'relative',
                   }}
                 >
                   {editingIndex === index ? (
@@ -173,6 +234,14 @@ export const ShoppingList: React.FC = () => {
                       <div style={{ fontWeight: 'bold', flex: 1, color: 'var(--text-h)' }}>{item.name}</div>
                       <button
                         className="btn-ghost"
+                        onClick={() => setInfoIndex(infoIndex === index ? null : index)}
+                        style={{ fontSize: '14px', color: 'var(--accent)' }}
+                        title="Herkunft anzeigen"
+                      >
+                        ℹ️
+                      </button>
+                      <button
+                        className="btn-ghost"
                         onClick={() => handleStartEdit(index, item.name)}
                         style={{ fontSize: '14px', color: 'var(--accent)' }}
                         title="Zutat umbenennen"
@@ -189,6 +258,35 @@ export const ShoppingList: React.FC = () => {
                       </span>
                     ))}
                   </div>
+
+                  {/* Info popup showing source recipes */}
+                  {infoIndex === index && item.sources && item.sources.length > 0 && (
+                    <div
+                      ref={infoRef}
+                      className="card"
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: '100%',
+                        zIndex: 20,
+                        padding: '12px',
+                        minWidth: '220px',
+                        boxShadow: 'var(--shadow-lg)',
+                        backgroundColor: 'var(--surface-0)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
+                    >
+                      <strong style={{ fontSize: '13px', color: 'var(--text-h)' }}>Enthalten in:</strong>
+                      <ul style={{ margin: '6px 0 0', paddingLeft: '16px', fontSize: '13px', color: 'var(--text)' }}>
+                        {item.sources.map((s, i) => (
+                          <li key={i} style={{ marginBottom: '3px' }}>
+                            {s.mealName}: {Math.round(s.amount * 100) / 100} {s.unit}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

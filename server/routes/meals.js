@@ -45,6 +45,7 @@ function rowToMeal(row) {
     id: row.id,
     name: row.name,
     ingredients: JSON.parse(row.ingredients),
+    shoppingIngredients: row.shopping_ingredients ? JSON.parse(row.shopping_ingredients) : undefined,
     defaultServings: row.default_servings,
     starred: row.starred === 1,
     rating: row.rating,
@@ -68,7 +69,7 @@ router.get('/', (req, res) => {
 // Create meal
 router.post('/', (req, res) => {
   try {
-    const { name, ingredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
+    const { name, ingredients, shoppingIngredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name ist erforderlich' });
@@ -77,13 +78,14 @@ router.post('/', (req, res) => {
     const id = generateMealId();
 
     db.prepare(`
-      INSERT INTO meals (id, user_id, name, ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO meals (id, user_id, name, ingredients, shopping_ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       req.userId,
       name,
       JSON.stringify(ingredients || []),
+      shoppingIngredients ? JSON.stringify(shoppingIngredients) : null,
       defaultServings || 2,
       starred ? 1 : 0,
       rating || null,
@@ -112,14 +114,15 @@ router.put('/:id', (req, res) => {
       return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
     }
 
-    const { name, ingredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
+    const { name, ingredients, shoppingIngredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
 
     db.prepare(`
-      UPDATE meals SET name = ?, ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?
+      UPDATE meals SET name = ?, ingredients = ?, shopping_ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?
       WHERE id = ? AND user_id = ?
     `).run(
       name ?? meal.name,
       ingredients ? JSON.stringify(ingredients) : meal.ingredients,
+      shoppingIngredients !== undefined ? (shoppingIngredients ? JSON.stringify(shoppingIngredients) : null) : meal.shopping_ingredients,
       defaultServings ?? meal.default_servings,
       starred != null ? (starred ? 1 : 0) : meal.starred,
       rating !== undefined ? rating : meal.rating,
@@ -182,9 +185,9 @@ router.put('/rename-ingredient', (req, res) => {
       return res.status(400).json({ error: 'oldName und newName sind erforderlich' });
     }
 
-    const meals = db.prepare('SELECT id, ingredients FROM meals WHERE user_id = ?').all(req.userId);
+    const meals = db.prepare('SELECT id, ingredients, shopping_ingredients FROM meals WHERE user_id = ?').all(req.userId);
 
-    const updateStmt = db.prepare('UPDATE meals SET ingredients = ? WHERE id = ?');
+    const updateStmt = db.prepare('UPDATE meals SET ingredients = ?, shopping_ingredients = ? WHERE id = ?');
 
     const rename = db.transaction(() => {
       for (const meal of meals) {
@@ -196,8 +199,23 @@ router.put('/rename-ingredient', (req, res) => {
             changed = true;
           }
         }
+
+        let shoppingIngredients = meal.shopping_ingredients ? JSON.parse(meal.shopping_ingredients) : null;
+        if (shoppingIngredients) {
+          for (const ing of shoppingIngredients) {
+            if (ing.name === oldName) {
+              ing.name = newName;
+              changed = true;
+            }
+          }
+        }
+
         if (changed) {
-          updateStmt.run(JSON.stringify(ingredients), meal.id);
+          updateStmt.run(
+            JSON.stringify(ingredients),
+            shoppingIngredients ? JSON.stringify(shoppingIngredients) : meal.shopping_ingredients,
+            meal.id
+          );
         }
       }
     });
@@ -289,13 +307,14 @@ router.post('/import', async (req, res) => {
       const id = generateMealId();
 
       db.prepare(`
-        INSERT INTO meals (id, user_id, name, ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO meals (id, user_id, name, ingredients, shopping_ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         req.userId,
         recipe.name,
         JSON.stringify(recipe.ingredients || []),
+        recipe.shoppingIngredients ? JSON.stringify(recipe.shoppingIngredients) : null,
         recipe.defaultServings || 2,
         0,
         recipe.rating || null,
