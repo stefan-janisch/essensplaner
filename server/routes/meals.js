@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
 import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { rowToMeal } from '../utils/transformers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -40,24 +41,39 @@ function generateMealId() {
   return `meal_${Date.now()}_${rand}`;
 }
 
-function rowToMeal(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    ingredients: JSON.parse(row.ingredients),
-    shoppingIngredients: row.shopping_ingredients ? JSON.parse(row.shopping_ingredients) : undefined,
-    defaultServings: row.default_servings,
-    starred: row.starred === 1,
-    rating: row.rating,
-    category: row.category,
-    tags: row.tags ? JSON.parse(row.tags) : undefined,
-    photoUrl: row.photo_url,
-    recipeUrl: row.recipe_url,
-    comment: row.comment,
-    recipeText: row.recipe_text,
-    prepTime: row.prep_time,
-    totalTime: row.total_time,
-  };
+function getMealForUser(mealId, userId) {
+  return db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(mealId, userId);
+}
+
+function deletePhotoFile(photoUrl) {
+  if (!photoUrl) return;
+  const filename = photoUrl.split('/').pop();
+  const photoPath = join(__dirname, '..', 'data', 'photos', filename);
+  if (existsSync(photoPath)) {
+    try { unlinkSync(photoPath); } catch { /* ignore */ }
+  }
+}
+
+async function downloadAndSavePhoto(url, mealId) {
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Essensplaner/1.0)' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) return null;
+
+  const contentType = response.headers.get('content-type') || '';
+  let ext = '.jpg';
+  if (contentType.includes('png')) ext = '.png';
+  else if (contentType.includes('webp')) ext = '.webp';
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const filename = `${mealId}${ext}`;
+  const filePath = join(__dirname, '..', 'data', 'photos', filename);
+  writeFileSync(filePath, buffer);
+
+  const photoUrl = `/api/photos/${filename}`;
+  db.prepare('UPDATE meals SET photo_url = ? WHERE id = ?').run(photoUrl, mealId);
+  return photoUrl;
 }
 
 // List all meals
@@ -109,7 +125,7 @@ router.post('/', (req, res) => {
 // Update meal
 router.put('/:id', (req, res) => {
   try {
-    const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+    const meal = getMealForUser(req.params.id, req.userId);
     if (!meal) {
       return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
     }
@@ -147,18 +163,12 @@ router.put('/:id', (req, res) => {
 
 // Delete meal
 router.delete('/:id', (req, res) => {
-  const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  const meal = getMealForUser(req.params.id, req.userId);
   if (!meal) {
     return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
   }
 
-  // Delete photo file if exists
-  if (meal.photo_url) {
-    const photoPath = join(__dirname, '..', 'data', 'photos', meal.photo_url.split('/').pop());
-    if (existsSync(photoPath)) {
-      try { unlinkSync(photoPath); } catch { /* ignore */ }
-    }
-  }
+  deletePhotoFile(meal.photo_url);
 
   db.prepare('DELETE FROM meals WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
   res.json({ ok: true });
@@ -166,7 +176,7 @@ router.delete('/:id', (req, res) => {
 
 // Toggle star
 router.patch('/:id/star', (req, res) => {
-  const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  const meal = getMealForUser(req.params.id, req.userId);
   if (!meal) {
     return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
   }
@@ -234,7 +244,7 @@ router.put('/rename-ingredient', (req, res) => {
 // Upload photo
 router.post('/:id/photo', upload.single('photo'), (req, res) => {
   try {
-    const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+    const meal = getMealForUser(req.params.id, req.userId);
     if (!meal) {
       return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
     }
@@ -243,13 +253,7 @@ router.post('/:id/photo', upload.single('photo'), (req, res) => {
       return res.status(400).json({ error: 'Keine Datei hochgeladen' });
     }
 
-    // Delete old photo if exists
-    if (meal.photo_url) {
-      const oldPath = join(__dirname, '..', 'data', 'photos', meal.photo_url.split('/').pop());
-      if (existsSync(oldPath)) {
-        try { unlinkSync(oldPath); } catch { /* ignore */ }
-      }
-    }
+    deletePhotoFile(meal.photo_url);
 
     const photoUrl = `/api/photos/${req.file.filename}`;
     db.prepare('UPDATE meals SET photo_url = ? WHERE id = ?').run(photoUrl, req.params.id);
@@ -263,17 +267,12 @@ router.post('/:id/photo', upload.single('photo'), (req, res) => {
 
 // Delete photo
 router.delete('/:id/photo', (req, res) => {
-  const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  const meal = getMealForUser(req.params.id, req.userId);
   if (!meal) {
     return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
   }
 
-  if (meal.photo_url) {
-    const photoPath = join(__dirname, '..', 'data', 'photos', meal.photo_url.split('/').pop());
-    if (existsSync(photoPath)) {
-      try { unlinkSync(photoPath); } catch { /* ignore */ }
-    }
-  }
+  deletePhotoFile(meal.photo_url);
 
   db.prepare('UPDATE meals SET photo_url = NULL WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
@@ -330,24 +329,7 @@ router.post('/import', async (req, res) => {
       // Try to download photo if URL provided
       if (recipe.photoUrl) {
         try {
-          const photoResponse = await fetch(recipe.photoUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Essensplaner/1.0)' },
-            signal: AbortSignal.timeout(10000),
-          });
-          if (photoResponse.ok) {
-            const contentType = photoResponse.headers.get('content-type') || '';
-            let ext = '.jpg';
-            if (contentType.includes('png')) ext = '.png';
-            else if (contentType.includes('webp')) ext = '.webp';
-
-            const buffer = Buffer.from(await photoResponse.arrayBuffer());
-            const filename = `${id}${ext}`;
-            const filePath = join(__dirname, '..', 'data', 'photos', filename);
-            writeFileSync(filePath, buffer);
-
-            const photoUrl = `/api/photos/${filename}`;
-            db.prepare('UPDATE meals SET photo_url = ? WHERE id = ?').run(photoUrl, id);
-          }
+          await downloadAndSavePhoto(recipe.photoUrl, id);
         } catch {
           // Photo download failed, continue without photo
         }
@@ -367,7 +349,7 @@ router.post('/import', async (req, res) => {
 // Download photo from URL and save locally
 router.post('/:id/photo-from-url', async (req, res) => {
   try {
-    const meal = db.prepare('SELECT * FROM meals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+    const meal = getMealForUser(req.params.id, req.userId);
     if (!meal) {
       return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
     }
@@ -377,36 +359,12 @@ router.post('/:id/photo-from-url', async (req, res) => {
       return res.status(400).json({ error: 'URL ist erforderlich' });
     }
 
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Essensplaner/1.0)' },
-      signal: AbortSignal.timeout(10000),
-    });
+    deletePhotoFile(meal.photo_url);
 
-    if (!response.ok) {
+    const photoUrl = await downloadAndSavePhoto(url, req.params.id);
+    if (!photoUrl) {
       return res.status(400).json({ error: 'Foto konnte nicht heruntergeladen werden' });
     }
-
-    const contentType = response.headers.get('content-type') || '';
-    let ext = '.jpg';
-    if (contentType.includes('png')) ext = '.png';
-    else if (contentType.includes('webp')) ext = '.webp';
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const filename = `${req.params.id}${ext}`;
-    const filePath = join(__dirname, '..', 'data', 'photos', filename);
-
-    // Delete old photo if exists
-    if (meal.photo_url) {
-      const oldPath = join(__dirname, '..', 'data', 'photos', meal.photo_url.split('/').pop());
-      if (existsSync(oldPath)) {
-        try { unlinkSync(oldPath); } catch { /* ignore */ }
-      }
-    }
-
-    writeFileSync(filePath, buffer);
-
-    const photoUrl = `/api/photos/${filename}`;
-    db.prepare('UPDATE meals SET photo_url = ? WHERE id = ?').run(photoUrl, req.params.id);
 
     res.json({ photoUrl });
   } catch (err) {

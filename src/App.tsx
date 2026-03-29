@@ -1,142 +1,17 @@
-import { DndContext, DragOverlay } from '@dnd-kit/core';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MealPlanProvider, useMealPlan } from './context/MealPlanContext';
 import { AuthForm } from './components/AuthForm';
 import { MigrationPrompt } from './components/MigrationPrompt';
-import { DateRangeSelector } from './components/DateRangeSelector';
 import { MealPlanTable } from './components/MealPlanTable';
 import { MenuPlanTable } from './components/MenuPlanTable';
-import { MealHistory } from './components/MealHistory';
-import { ShoppingList } from './components/ShoppingList';
 import { MealPlanOverview } from './components/MealPlanOverview';
 import { RecipeManagement } from './components/RecipeManagement';
-import type { Meal, MealType, PlanType } from './types/index.js';
+import { PlanViewLayout } from './components/PlanViewLayout';
+import type { PlanType } from './types/index.js';
 import './App.css';
 
 type AppView = 'overview' | 'planner' | 'recipes' | 'menuplan';
-
-function MealPlannerContent({ onBack }: { onBack: () => void }) {
-  const { addMealToSlot, moveEntry } = useMealPlan();
-  const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const meal = event.active.data.current?.meal;
-    if (meal) {
-      setActiveMeal(meal);
-    }
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveMeal(null);
-
-    const { active, over } = event;
-
-    if (!over) return;
-
-    const dropData = over.data.current as { date: string; mealType: string } | undefined;
-    if (!dropData) return;
-
-    const sourceData = active.data.current as { entryId?: number; sourceDate?: string; sourceMealType?: string } | undefined;
-
-    if (sourceData?.entryId) {
-      // Entry drag from cell → move to target slot
-      if (sourceData.sourceDate === dropData.date && sourceData.sourceMealType === dropData.mealType) return;
-      moveEntry(sourceData.entryId, dropData.date, dropData.mealType as MealType);
-    } else {
-      // Drag from history sidebar → add to slot
-      const mealId = active.id as string;
-      addMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
-    }
-  };
-
-  return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
-        <DateRangeSelector onBack={onBack} />
-
-        <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
-          <div>
-            <MealPlanTable />
-            <ShoppingList />
-          </div>
-
-          <div style={{ position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 200px)', overflow: 'hidden' }}>
-            <MealHistory />
-          </div>
-        </div>
-      </div>
-
-      <DragOverlay>
-        {activeMeal ? (
-          <div
-            style={{
-              padding: '12px 16px',
-              backgroundColor: 'var(--surface-0)',
-              border: '2px solid var(--accent)',
-              borderRadius: 'var(--radius-md)',
-              boxShadow: 'var(--shadow-lg)',
-              cursor: 'grabbing',
-            }}
-          >
-            <div style={{ fontWeight: 'bold', color: 'var(--text-h)' }}>{activeMeal.name}</div>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
-  );
-}
-
-function MenuPlanContent({ onBack }: { onBack: () => void }) {
-  const { addMealToSlot, moveEntry } = useMealPlan();
-  const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const meal = event.active.data.current?.meal;
-    if (meal) setActiveMeal(meal);
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveMeal(null);
-    const { active, over } = event;
-    if (!over) return;
-    const dropData = over.data.current as { date: string; mealType: string } | undefined;
-    if (!dropData) return;
-    const sourceData = active.data.current as { entryId?: number; sourceDate?: string; sourceMealType?: string } | undefined;
-    if (sourceData?.entryId) {
-      if (sourceData.sourceDate === dropData.date && sourceData.sourceMealType === dropData.mealType) return;
-      moveEntry(sourceData.entryId, dropData.date, dropData.mealType as MealType);
-    } else {
-      const mealId = active.id as string;
-      addMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
-    }
-  };
-
-  return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
-        <DateRangeSelector onBack={onBack} />
-        <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
-          <div>
-            <MenuPlanTable />
-            <ShoppingList />
-          </div>
-          <div style={{ position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 200px)', overflow: 'hidden' }}>
-            <MealHistory />
-          </div>
-        </div>
-      </div>
-      <DragOverlay>
-        {activeMeal ? (
-          <div style={{ padding: '12px 16px', backgroundColor: 'var(--surface-0)', border: '2px solid var(--accent)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', cursor: 'grabbing' }}>
-            <div style={{ fontWeight: 'bold', color: 'var(--text-h)' }}>{activeMeal.name}</div>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
-  );
-}
 
 function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNavigate: (view: AppView) => void }) {
   const { user, logout } = useAuth();
@@ -302,9 +177,9 @@ function AuthenticatedAppInner() {
       ) : view === 'recipes' ? (
         <RecipeManagement />
       ) : view === 'menuplan' ? (
-        <MenuPlanContent onBack={() => setView('overview')} />
+        <PlanViewLayout onBack={() => setView('overview')}><MenuPlanTable /></PlanViewLayout>
       ) : (
-        <MealPlannerContent onBack={() => setView('overview')} />
+        <PlanViewLayout onBack={() => setView('overview')}><MealPlanTable /></PlanViewLayout>
       )}
     </>
   );

@@ -3,10 +3,10 @@ import { useDraggable } from '@dnd-kit/core';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeCard, RecipeDetailModal, EditRecipeModal, CreateRecipeModal } from './RecipeManagement';
 import { getCategoryLabel } from '../constants/categories';
-import { TAG_GROUPS, parseTag } from '../constants/tags';
+import { TAG_GROUPS } from '../constants/tags';
+import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
+import type { SortBy } from '../utils/mealFilters';
 import type { Meal } from '../types/index.js';
-
-type SortBy = 'name' | 'rating' | 'newest';
 
 function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit: () => void; onSetRating: (r: number) => void }) {
   const { toggleMealStar, deleteMeal } = useMealPlan();
@@ -74,62 +74,17 @@ export const MealHistory: React.FC = () => {
     [state.meals]
   );
 
-  const tagValuesByGroup = useMemo(() => {
-    const map: Record<string, Set<string>> = {};
-    state.meals.forEach(m => m.tags?.forEach(t => {
-      const p = parseTag(t);
-      if (p) {
-        if (!map[p.key]) map[p.key] = new Set();
-        map[p.key].add(p.value);
-      }
-    }));
-    return map;
-  }, [state.meals]);
+  const tagValuesByGroup = useMemo(() => buildTagValuesByGroup(state.meals), [state.meals]);
 
-  const filteredMeals = useMemo(() => {
-    return state.meals.filter(meal => {
-      if (starFilter === 'starred' && !meal.starred) return false;
-      if (categoryFilter && meal.category !== categoryFilter) return false;
-      if (tagFilter.length > 0) {
-        const filtersByGroup: Record<string, string[]> = {};
-        tagFilter.forEach(t => {
-          const p = parseTag(t);
-          if (p) {
-            if (!filtersByGroup[p.key]) filtersByGroup[p.key] = [];
-            filtersByGroup[p.key].push(t);
-          }
-        });
-        for (const groupTags of Object.values(filtersByGroup)) {
-          if (!groupTags.some(t => meal.tags?.includes(t))) return false;
-        }
-      }
-      if (maxPrepTime) {
-        const effectivePrepTime = meal.prepTime ?? meal.totalTime;
-        if (!effectivePrepTime || effectivePrepTime > maxPrepTime) return false;
-      }
-      if (maxTotalTime && (!meal.totalTime || meal.totalTime > maxTotalTime)) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return meal.name.toLowerCase().includes(q) ||
-          meal.ingredients.some(ing => ing.name.toLowerCase().includes(q)) ||
-          meal.tags?.some(t => t.toLowerCase().includes(q)) ||
-          (meal.category && getCategoryLabel(meal.category)?.toLowerCase().includes(q));
-      }
-      return true;
-    });
-  }, [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery]);
+  const filteredMeals = useMemo(() =>
+    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery }),
+    [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery]
+  );
 
-  const sortedMeals = useMemo(() => {
-    return [...filteredMeals].sort((a, b) => {
-      if (a.starred && !b.starred) return -1;
-      if (!a.starred && b.starred) return 1;
-      switch (sortBy) {
-        case 'rating': return (b.rating || 0) - (a.rating || 0);
-        case 'newest': return (b.id > a.id ? 1 : -1);
-        default: return a.name.localeCompare(b.name);
-      }
-    });
-  }, [filteredMeals, sortBy]);
+  const sortedMeals = useMemo(() =>
+    sortMeals(filteredMeals, sortBy, { pinStarred: true }),
+    [filteredMeals, sortBy]
+  );
 
   const handleSetRating = async (mealId: string, rating: number) => {
     const meal = state.meals.find(m => m.id === mealId);

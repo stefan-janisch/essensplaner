@@ -2,13 +2,13 @@ import React, { useState, useMemo } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeForm } from './RecipeForm';
 import { RECIPE_CATEGORIES, getCategoryLabel } from '../constants/categories';
-import { TAG_GROUPS, parseTag } from '../constants/tags';
+import { TAG_GROUPS } from '../constants/tags';
+import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
+import type { SortBy } from '../utils/mealFilters';
 import type { Meal } from '../types/index.js';
 import type { RecipeFormData } from './RecipeForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-
-type SortBy = 'name' | 'rating' | 'newest';
 
 export function RatingStars({ rating, size = 16, onClick }: { rating?: number; size?: number; onClick?: (rating: number) => void }) {
   return (
@@ -550,68 +550,17 @@ export const RecipeManagement: React.FC = () => {
   const [addToPlanMeal, setAddToPlanMeal] = useState<Meal | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Collect available tag values per group from all meals
-  const tagValuesByGroup = useMemo(() => {
-    const map: Record<string, Set<string>> = {};
-    state.meals.forEach(m => m.tags?.forEach(t => {
-      const p = parseTag(t);
-      if (p) {
-        if (!map[p.key]) map[p.key] = new Set();
-        map[p.key].add(p.value);
-      }
-    }));
-    return map;
-  }, [state.meals]);
+  const tagValuesByGroup = useMemo(() => buildTagValuesByGroup(state.meals), [state.meals]);
 
-  const filteredMeals = useMemo(() => {
-    return state.meals.filter(meal => {
-      if (starFilter === 'starred' && !meal.starred) return false;
-      if (categoryFilter && meal.category !== categoryFilter) return false;
-      // Per-group tag filtering: for each group with selections, meal must have at least one matching tag
-      if (tagFilter.length > 0) {
-        const filtersByGroup: Record<string, string[]> = {};
-        tagFilter.forEach(t => {
-          const p = parseTag(t);
-          if (p) {
-            if (!filtersByGroup[p.key]) filtersByGroup[p.key] = [];
-            filtersByGroup[p.key].push(t);
-          }
-        });
-        // AND across groups, OR within a group
-        for (const groupTags of Object.values(filtersByGroup)) {
-          if (!groupTags.some(t => meal.tags?.includes(t))) return false;
-        }
-      }
-      // Active time filter: use totalTime as fallback (active ≤ total always holds)
-      if (maxPrepTime) {
-        const effectivePrepTime = meal.prepTime ?? meal.totalTime;
-        if (!effectivePrepTime || effectivePrepTime > maxPrepTime) return false;
-      }
-      if (maxTotalTime && (!meal.totalTime || meal.totalTime > maxTotalTime)) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return meal.name.toLowerCase().includes(q) ||
-          meal.ingredients.some(ing => ing.name.toLowerCase().includes(q)) ||
-          meal.tags?.some(t => t.toLowerCase().includes(q)) ||
-          (meal.category && getCategoryLabel(meal.category)?.toLowerCase().includes(q));
-      }
-      return true;
-    });
-  }, [state.meals, starFilter, categoryFilter, tagFilter, searchQuery, maxPrepTime, maxTotalTime]);
+  const filteredMeals = useMemo(() =>
+    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery }),
+    [state.meals, starFilter, categoryFilter, tagFilter, searchQuery, maxPrepTime, maxTotalTime]
+  );
 
-  const sortedMeals = useMemo(() => {
-    return [...filteredMeals].sort((a, b) => {
-      switch (sortBy) {
-        case 'rating':
-          return (b.rating || 0) - (a.rating || 0);
-        case 'newest':
-          return (b.id > a.id ? 1 : -1);
-        case 'name':
-        default:
-          return a.name.localeCompare(b.name);
-      }
-    });
-  }, [filteredMeals, sortBy]);
+  const sortedMeals = useMemo(() =>
+    sortMeals(filteredMeals, sortBy),
+    [filteredMeals, sortBy]
+  );
 
   const handleDelete = (meal: Meal) => {
     if (confirm(`Rezept "${meal.name}" wirklich löschen?`)) {

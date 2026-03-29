@@ -87,6 +87,10 @@ try {
   process.exit(1);
 }
 
+function cleanAIJsonResponse(text) {
+  return text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+}
+
 // Parse recipe from URL endpoint
 app.post('/api/parse-recipe-url', requireAuth, async (req, res) => {
   try {
@@ -166,7 +170,7 @@ ${existingTagsList.join(', ')}` : ''}`
     // Try to parse the JSON response
     let parsed;
     try {
-      const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const cleanedText = cleanAIJsonResponse(responseText);
       parsed = JSON.parse(cleanedText);
     } catch (parseError) {
       console.error('Failed to parse OpenAI response:', responseText);
@@ -315,7 +319,7 @@ NUR erlaubte Einheiten: "g", "ml", "Stück"
 
     function parseAIResponse(completion) {
       const responseText = completion.choices[0]?.message?.content || '{"ingredients":[],"servings":null}';
-      const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const cleanedText = cleanAIJsonResponse(responseText);
       const parsed = JSON.parse(cleanedText);
 
       if (!parsed.ingredients || !Array.isArray(parsed.ingredients)) {
