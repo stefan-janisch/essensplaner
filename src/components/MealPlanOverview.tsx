@@ -5,6 +5,7 @@ import 'react-date-range/dist/theme/default.css';
 import { de } from 'date-fns/locale';
 import { format } from 'date-fns';
 import { useMealPlan } from '../context/MealPlanContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { ShareDialog } from './ShareDialog';
 import type { MealPlan, PlanType } from '../types/index.js';
 
@@ -14,6 +15,7 @@ interface MealPlanOverviewProps {
 
 export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }) => {
   const { state, createPlan, deletePlan, leavePlan, selectPlan, renamePlan, archivePlan, refreshPlans } = useMealPlan();
+  const isMobile = useIsMobile();
   const [showCreate, setShowCreate] = useState(false);
   const [createType, setCreateType] = useState<'weekly' | 'menu'>('weekly');
   const [planName, setPlanName] = useState('');
@@ -226,19 +228,19 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
   );
 
   return (
-    <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <div className="plan-overview-container" style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', gap: '12px', flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0, color: 'var(--text-h)' }}>Essenspläne</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: isMobile ? '1 1 100%' : undefined }}>
           <input
             className="input"
             type="text"
             placeholder="Pläne suchen..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            style={{ width: '200px' }}
+            style={{ width: isMobile ? undefined : '200px', flex: isMobile ? 1 : undefined }}
           />
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+          <button className="btn btn-primary" onClick={() => setShowCreate(true)} style={{ whiteSpace: 'nowrap' }}>
             + Neuer Plan
           </button>
         </div>
@@ -270,7 +272,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
                   ranges={[selectionRange]}
                   onChange={handleSelect}
                   locale={de}
-                  months={2}
+                  months={isMobile ? 1 : 2}
                   direction="horizontal"
                   showDateDisplay={false}
                   rangeColors={['var(--accent)']}
@@ -329,7 +331,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
       ) : (
         <>
           {filteredActive.length > 0 ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+            <div className="plan-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
               {filteredActive.map(renderPlanCard)}
             </div>
           ) : activePlans.length > 0 && searchQuery.trim() ? (
@@ -349,7 +351,7 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
               </button>
               {showArchived && (
                 filteredArchived.length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', opacity: 0.75 }}>
+                  <div className="plan-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', opacity: 0.75 }}>
                     {filteredArchived.map(renderPlanCard)}
                   </div>
                 ) : searchQuery.trim() ? (

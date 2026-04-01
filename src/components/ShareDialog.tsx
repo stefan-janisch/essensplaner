@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
+import { ModalPortal } from './Modal';
 import type { Collaborator } from '../types/index.js';
 
 interface ShareInfo {
@@ -67,6 +68,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ planId, collaborators,
   };
 
   return (
+    <ModalPortal>
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '500px', width: '90%' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -134,5 +136,6 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ planId, collaborators,
         )}
       </div>
     </div>
+    </ModalPortal>
   );
 };

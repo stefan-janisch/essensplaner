@@ -395,7 +395,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
         <div style={{ marginBottom: '15px' }}>
           <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
           <input className="input" type="url" value={recipeUrl} onChange={(e) => setRecipeUrl(e.target.value)} placeholder="https://..." style={{ width: '100%' }} />
-          <button type="button" className="btn btn-warning" onClick={handleParseFromURL} disabled={!recipeUrl.trim() || isParsing} style={{ marginTop: '8px' }}>
+          <button type="button" className="btn btn-warning" onClick={handleParseFromURL} disabled={!recipeUrl.trim() || isParsing} style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>
             {isParsing ? '🤖 Parst...' : '🌐 Rezept von URL parsen'}
           </button>
         </div>
@@ -412,7 +412,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
         )}
         <div>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoSelect} style={{ display: 'none' }} />
-          <button type="button" className="btn btn-muted btn-sm" onClick={() => fileInputRef.current?.click()}>Foto hochladen</button>
+          <button type="button" className="btn btn-muted" onClick={() => fileInputRef.current?.click()} style={{ display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>Foto hochladen</button>
         </div>
       </div>
 
@@ -507,7 +507,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       <div style={{ marginBottom: '15px' }}>
         <label style={{ display: 'block', marginBottom: '5px' }}>Zubereitung:</label>
         <textarea className="textarea" value={recipeText} onChange={(e) => setRecipeText(e.target.value)} placeholder="Optionale Zubereitungsschritte..." rows={6} style={{ width: '100%' }} />
-        <button type="button" className="btn btn-warning btn-sm" onClick={handleCleanRecipeText} disabled={!recipeText.trim() || isCleaning} style={{ marginTop: '8px' }}>
+        <button type="button" className="btn btn-warning" onClick={handleCleanRecipeText} disabled={!recipeText.trim() || isCleaning} style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>
           {isCleaning ? '🤖 Räumt auf...' : '✨ Aufräumen'}
         </button>
       </div>
@@ -516,13 +516,13 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       <div style={{ marginBottom: '15px' }}>
         <label style={{ display: 'block', marginBottom: '5px' }}>ODER Zutatenliste einfügen:</label>
         <textarea className="textarea" value={ingredientText} onChange={(e) => setIngredientText(e.target.value)} placeholder={"Z.B.:\n2 Zwiebeln\n500g Tomaten\n3 Zehen Knoblauch\n2 EL Olivenöl"} rows={6} style={{ width: '100%' }} />
-        <button type="button" className="btn btn-accent" onClick={handleParseIngredients} disabled={!ingredientText.trim() || isParsing} style={{ marginTop: '8px' }}>
+        <button type="button" className="btn btn-accent" onClick={handleParseIngredients} disabled={!ingredientText.trim() || isParsing} style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>
           {isParsing ? '🤖 Parst...' : '📝 Zutaten parsen'}
         </button>
       </div>
 
       {/* Ingredients — side by side: display + shopping */}
-      <div style={{ marginBottom: '15px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+      <div className="ingredient-columns" style={{ marginBottom: '15px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
         {/* Display ingredients (verbatim from recipe) */}
         <div>
           <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-Zutaten:*</label>
@@ -574,7 +574,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: '10px' }}>
+      <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
         <button type="submit" className="btn btn-primary">{submitLabel}</button>
         {onCancel && (<button type="button" className="btn btn-muted" onClick={onCancel}>Abbrechen</button>)}
       </div>

@@ -51,8 +51,12 @@
 - [x] Zusätzliches Feld im mealPlan für Sonstiges (Snacks, Getränke, Kaffee etc.)
 
 
-# Safety features
 - [x] Check for prompt hacking
 - [x] Check for SQL injection at the database interaction level. That way, all queries are caught.
 
-- [x]Make mobile version
+- [x] Make mobile version
+
+- [ ] Es sollte die Möglichkeit zum Filtern nach 0 Sternen geben
+
+
+- [ ] AI-Kosten-Tracking in DB: Pro AI Endpoint und User werden die Kosten und Anzahl der Aufrufe getrackt -> Admin-Account hat Admin-Tab mit eigenem Sidebar-Menü. Unter API-Kosten kann er eine detaillierte Aufstellung einsehen.

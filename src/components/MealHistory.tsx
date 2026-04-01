@@ -6,7 +6,9 @@ import { getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
 import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
 import type { SortBy, RatingComparator } from '../utils/mealFilters';
-import type { Meal, MealPlanEntry } from '../types/index.js';
+import type { Meal, MealType, MealPlanEntry } from '../types/index.js';
+import { format, parseISO } from 'date-fns';
+import { de } from 'date-fns/locale';
 
 /**
  * For each meal, compute how many of its shopping ingredients are NOT
@@ -90,8 +92,23 @@ function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit
   );
 }
 
-export const MealHistory: React.FC = () => {
-  const { state, activePlan, updateMeal } = useMealPlan();
+interface MealHistoryProps {
+  tapMode?: { date: string; mealType: MealType } | null;
+  onTapSelect?: (mealId: string) => void;
+  onCancelTap?: () => void;
+}
+
+const MEAL_TYPE_LABELS: Record<string, string> = {
+  breakfast: 'Frühstück',
+  lunch: 'Mittagessen',
+  dinner: 'Abendessen',
+  snacks: 'Snacks',
+  drinks: 'Getränke',
+  misc: 'Sonstiges',
+};
+
+export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, onCancelTap }) => {
+  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal } = useMealPlan();
   const [searchQuery, setSearchQuery] = useState('');
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -109,7 +126,7 @@ export const MealHistory: React.FC = () => {
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
     + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
-    + (starFilter !== 'all' ? 1 : 0) + (ratingFilter ? 1 : 0);
+    + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0);
 
   const categories = useMemo(() =>
     [...new Set(state.meals.map(m => m.category).filter(Boolean))] as string[],
@@ -183,6 +200,15 @@ export const MealHistory: React.FC = () => {
 
   return (
     <div className="panel" style={{ height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {tapMode && (
+        <div className="tap-mode-banner">
+          <span>
+            Rezept wählen für <strong>{MEAL_TYPE_LABELS[tapMode.mealType] || tapMode.mealType}</strong>,{' '}
+            {format(parseISO(tapMode.date), 'EEEE dd.MM.', { locale: de })}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={onCancelTap}>Abbrechen</button>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
         <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Rezepte ({displayMeals.length})</h3>
         <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>+ Neu</button>
@@ -278,12 +304,19 @@ export const MealHistory: React.FC = () => {
                 <option value="eq">=</option>
                 <option value="lte">≤</option>
               </select>
-              <div style={{ display: 'flex', gap: '2px' }}>
+              <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+                <span
+                  onClick={() => setRatingFilter(ratingFilter === 0 ? '' : 0)}
+                  style={{ cursor: 'pointer', fontSize: '12px', opacity: ratingFilter === 0 ? 1 : 0.3, padding: '0 2px' }}
+                  title="Ohne Bewertung"
+                >
+                  ∅
+                </span>
                 {[1, 2, 3, 4, 5].map(s => (
                   <span
                     key={s}
                     onClick={() => setRatingFilter(ratingFilter === s ? '' : s)}
-                    style={{ cursor: 'pointer', fontSize: '16px', opacity: ratingFilter && s <= ratingFilter ? 1 : 0.3 }}
+                    style={{ cursor: 'pointer', fontSize: '16px', opacity: ratingFilter !== '' && s <= ratingFilter ? 1 : 0.3 }}
                   >
                     ★
                   </span>
@@ -353,11 +386,24 @@ export const MealHistory: React.FC = () => {
                         : `+${info.extra} ${info.extra === 1 ? 'Zutat' : 'Zutaten'} · ${info.extraNames.slice(0, 3).join(', ')}${info.extraNames.length > 3 ? ` …` : ''}`}
                     </div>
                   )}
-                  <DraggableRecipeCard
-                    meal={meal}
-                    onEdit={() => setEditingMeal(meal)}
-                    onSetRating={(r) => handleSetRating(meal.id, r)}
-                  />
+                  {tapMode && onTapSelect ? (
+                    <div onClick={() => onTapSelect(meal.id)} style={{ cursor: 'pointer' }}>
+                      <RecipeCard
+                        meal={meal}
+                        compact
+                        onEdit={() => setEditingMeal(meal)}
+                        onDelete={() => { if (confirm(`Rezept "${meal.name}" wirklich löschen?`)) deleteMeal(meal.id); }}
+                        onToggleStar={() => toggleMealStar(meal.id)}
+                        onSetRating={(r) => handleSetRating(meal.id, r)}
+                      />
+                    </div>
+                  ) : (
+                    <DraggableRecipeCard
+                      meal={meal}
+                      onEdit={() => setEditingMeal(meal)}
+                      onSetRating={(r) => handleSetRating(meal.id, r)}
+                    />
+                  )}
                 </div>
               );
             })}

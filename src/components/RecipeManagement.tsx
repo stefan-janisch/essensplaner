@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeForm } from './RecipeForm';
+import { ModalPortal } from './Modal';
 import { RECIPE_CATEGORIES, getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
 import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
@@ -216,25 +217,24 @@ export function RecipeDetailModal({
     setEditingComment(false);
   };
   return (
+    <ModalPortal>
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '700px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, color: 'var(--text-h)' }}>{meal.name}</h2>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            {meal.recipeUrl && (
-              <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer" className="btn btn-muted" style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>
-                🔗 Rezept
-              </a>
-            )}
-            {onToggleStar && (
-              <button className="btn-ghost" onClick={onToggleStar} style={{ fontSize: '20px' }}>
-                {meal.starred ? '⭐' : '☆'}
-              </button>
-            )}
-            {onEdit && <button className="btn btn-accent" onClick={onEdit} style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>Bearbeiten</button>}
-            <button className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>×</button>
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+          {meal.recipeUrl && (
+            <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer" className="btn btn-muted" style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>
+              🔗 Rezept
+            </a>
+          )}
+          {onToggleStar && (
+            <button className="btn-ghost" onClick={onToggleStar} style={{ fontSize: '20px' }}>
+              {meal.starred ? '⭐' : '☆'}
+            </button>
+          )}
+          {onEdit && <button className="btn btn-accent" onClick={onEdit} style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>Bearbeiten</button>}
+          <button className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>×</button>
         </div>
+        <h2 style={{ margin: '0 0 16px 0', color: 'var(--text-h)', textAlign: 'center' }}>{meal.name}</h2>
 
         {meal.photoUrl && (
           <img
@@ -314,7 +314,7 @@ export function RecipeDetailModal({
           )}
         </div>
 
-        <div style={{ display: meal.recipeText ? 'grid' : 'block', gridTemplateColumns: meal.recipeText ? '1fr 2fr' : '1fr', gap: '20px' }}>
+        <div className="recipe-detail-grid" style={{ display: meal.recipeText ? 'grid' : 'block', gridTemplateColumns: meal.recipeText ? '1fr 2fr' : '1fr', gap: '20px' }}>
           <div style={{ textAlign: 'left' }}>
             <strong style={{ fontSize: '14px', color: 'var(--text-h)' }}>Zutaten</strong>
             <ul style={{ margin: '8px 0', paddingLeft: '18px', fontSize: '14px', color: 'var(--text)', textAlign: 'left' }}>
@@ -341,6 +341,7 @@ export function RecipeDetailModal({
         <RecipeChat meal={meal} />
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -361,6 +362,7 @@ export function EditRecipeModal({ meal, onClose }: { meal: Meal; onClose: () => 
   };
 
   return (
+    <ModalPortal>
     <div className="modal-backdrop">
       <div className="modal-content" style={{ maxWidth: '900px', width: '90%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid var(--border-light)', flexShrink: 0 }}>
@@ -383,6 +385,7 @@ export function EditRecipeModal({ meal, onClose }: { meal: Meal; onClose: () => 
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -403,6 +406,7 @@ export function CreateRecipeModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
+    <ModalPortal>
     <div className="modal-backdrop">
       <div className="modal-content" style={{ maxWidth: '900px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -418,6 +422,7 @@ export function CreateRecipeModal({ onClose }: { onClose: () => void }) {
         />
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -536,6 +541,7 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
   const hasContent = rows.length > 0;
 
   return (
+    <ModalPortal>
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '550px', width: '90%', padding: '16px' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -618,6 +624,7 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
         )}
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -725,11 +732,11 @@ export const RecipeManagement: React.FC = () => {
   const currentViewingMeal = viewingMeal ? state.meals.find(m => m.id === viewingMeal.id) || viewingMeal : null;
 
   return (
-    <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
+    <div className="recipe-management-container" style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className="recipe-management-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ margin: 0, color: 'var(--text-h)' }}>Rezepte ({state.meals.length})</h2>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="recipe-management-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <input
             ref={fileInputRef}
             type="file"
@@ -838,12 +845,19 @@ export const RecipeManagement: React.FC = () => {
             <option value="eq">=</option>
             <option value="lte">≤</option>
           </select>
-          <div style={{ display: 'flex', gap: '2px' }}>
+          <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+            <span
+              onClick={() => setRatingFilter(ratingFilter === 0 ? '' : 0)}
+              style={{ cursor: 'pointer', fontSize: '14px', opacity: ratingFilter === 0 ? 1 : 0.3, padding: '0 2px' }}
+              title="Ohne Bewertung"
+            >
+              ∅
+            </span>
             {[1, 2, 3, 4, 5].map(s => (
               <span
                 key={s}
                 onClick={() => setRatingFilter(ratingFilter === s ? '' : s)}
-                style={{ cursor: 'pointer', fontSize: '18px', opacity: ratingFilter && s <= ratingFilter ? 1 : 0.3 }}
+                style={{ cursor: 'pointer', fontSize: '18px', opacity: ratingFilter !== '' && s <= ratingFilter ? 1 : 0.3 }}
               >
                 ★
               </span>

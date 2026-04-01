@@ -1,5 +1,6 @@
 import React from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface DateRangeSelectorProps {
   onBack: () => void;
@@ -12,11 +13,30 @@ function formatDateDE(dateStr: string): string {
 
 export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) => {
   const { activePlan, defaultServings, setDefaultServings } = useMealPlan();
+  const isMobile = useIsMobile();
 
   if (!activePlan) return null;
 
+  if (isMobile) {
+    return (
+      <div className="panel" style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ flexShrink: 0, padding: '4px 6px' }}>
+          &larr;
+        </button>
+        <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+          <strong style={{ fontSize: '15px', color: 'var(--text-h)' }}>{activePlan.name}</strong>
+          {activePlan.startDate && activePlan.endDate && (
+            <span style={{ color: 'var(--text)', fontSize: '12px', marginLeft: '6px' }}>
+              {formatDateDE(activePlan.startDate)} — {formatDateDE(activePlan.endDate)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="panel" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div className="panel date-range-bar" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       {/* Left: back */}
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ flexShrink: 0 }}>
         &larr; Alle Pläne
@@ -38,7 +58,7 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
       </div>
 
       {/* Right: servings */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+      <div className="servings-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>Standard-Portionen:</label>
         <input
           className="input"

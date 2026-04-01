@@ -633,3 +633,312 @@ label {
 .recipe-chat-input button {
   flex-shrink: 0;
 }
+
+/* === MOBILE BOTTOM TABS === */
+.mobile-bottom-tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex;
+  background: var(--surface-0);
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+  z-index: 900;
+}
+.mobile-bottom-tabs button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  padding: 4px 0;
+  font-family: inherit;
+}
+.mobile-bottom-tabs button.active {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.mobile-bottom-tabs .tab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* === MOBILE DAY VIEW === */
+.mobile-day-carousel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mobile-day-carousel::-webkit-scrollbar {
+  display: none;
+}
+.mobile-day-page {
+  min-width: 100%;
+  scroll-snap-align: start;
+  padding: 0 4px;
+}
+.mobile-day-header {
+  text-align: center;
+  padding: 12px 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+.mobile-day-date {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+}
+.mobile-meal-section {
+  background: var(--surface-0);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.mobile-meal-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text);
+}
+.mobile-meal-section-body {
+  padding: 8px 12px;
+  min-height: 48px;
+}
+.mobile-meal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.mobile-meal-item:last-child {
+  border-bottom: none;
+}
+.mobile-meal-item-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.mobile-meal-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.mobile-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px dashed var(--border-input);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-primary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+.mobile-add-btn:active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+.mobile-day-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+}
+.mobile-day-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-light);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.mobile-day-dot.active {
+  background: var(--color-primary);
+}
+.mobile-empty-slot {
+  color: var(--text);
+  opacity: 0.3;
+  font-size: 13px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+/* === TAP MODE BANNER === */
+.tap-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+/* === MOBILE PLAN VIEW === */
+.plan-view-mobile {
+  padding: 8px 12px;
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+/* === MOBILE RECIPE OVERLAY (opens when "+" is tapped) === */
+.mobile-recipe-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  background: var(--surface-1);
+  padding: 12px;
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+  overflow-y: auto;
+  animation: fadeIn 150ms ease;
+}
+
+/* === MOBILE RESPONSIVE === */
+@media (max-width: 768px) {
+  .app-header {
+    padding: 8px 12px;
+  }
+  .app-header-title {
+    font-size: 16px;
+  }
+  .app-header-user span:not(.btn-ghost) {
+    display: none;
+  }
+
+  /* Modals: fullscreen window on mobile */
+  .modal-backdrop {
+    align-items: stretch;
+    padding: env(safe-area-inset-top, 0px) 0 0 0;
+  }
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 100%;
+    height: 100%;
+    border-radius: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+  .meal-table th {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+  .meal-table td {
+    padding: 8px;
+    font-size: 12px;
+  }
+  .recipe-grid {
+    grid-template-columns: 1fr;
+  }
+  .ingredient-columns {
+    grid-template-columns: 1fr !important;
+  }
+  .recipe-detail-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Date range bar: stack on mobile, hide servings */
+  .date-range-bar {
+    flex-direction: column;
+    gap: 4px;
+    text-align: center;
+  }
+  .date-range-bar .servings-section {
+    display: none;
+  }
+
+  .plan-overview-container {
+    width: 100% !important;
+    padding: 12px !important;
+  }
+  .plan-cards-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Rezepte-Seite: responsive header + buttons */
+  .recipe-management-container {
+    width: 100% !important;
+    padding: 12px !important;
+  }
+  .recipe-management-header {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+  .recipe-management-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+  .recipe-management-actions .btn {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Prevent horizontal overflow in modals/forms */
+  .modal-content {
+    word-break: break-word;
+  }
+  .modal-content img {
+    max-width: 100%;
+    height: auto;
+  }
+  .modal-content input {
+    min-width: 0 !important;
+  }
+
+  /* Touch-friendly minimum sizes */
+  .btn-sm {
+    min-height: 32px;
+    min-width: 32px;
+  }
+  .btn-ghost {
+    min-height: 32px;
+  }
+  .pill {
+    min-height: 32px;
+  }
+
+  /* Prevent horizontal scroll leaking into body */
+  .plan-view-mobile {
+    overflow-x: hidden;
+  }
+}

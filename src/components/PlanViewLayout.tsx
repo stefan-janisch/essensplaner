@@ -2,9 +2,12 @@ import { DndContext, DragOverlay } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useState, type ReactNode } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { DateRangeSelector } from './DateRangeSelector';
 import { MealHistory } from './MealHistory';
 import { ShoppingList } from './ShoppingList';
+import { MobileDayView } from './MobileDayView';
+import { MobileBottomTabs, type MobileTab } from './MobileBottomTabs';
 import type { Meal, MealType } from '../types/index.js';
 
 interface PlanViewLayoutProps {
@@ -14,7 +17,10 @@ interface PlanViewLayoutProps {
 
 export function PlanViewLayout({ onBack, children }: PlanViewLayoutProps) {
   const { addMealToSlot, moveEntry } = useMealPlan();
+  const isMobile = useIsMobile();
   const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
+  const [activeTab, setActiveTab] = useState<MobileTab>('plan');
+  const [addTarget, setAddTarget] = useState<{ date: string; mealType: MealType } | null>(null);
 
   const handleDragStart = (event: DragStartEvent) => {
     const meal = event.active.data.current?.meal;
@@ -43,6 +49,49 @@ export function PlanViewLayout({ onBack, children }: PlanViewLayoutProps) {
       addMealToSlot(dropData.date, dropData.mealType as MealType, mealId);
     }
   };
+
+  const handleAddRequest = (date: string, mealType: MealType) => {
+    setAddTarget({ date, mealType });
+  };
+
+  const handleTapSelect = (mealId: string) => {
+    if (addTarget) {
+      addMealToSlot(addTarget.date, addTarget.mealType, mealId);
+      setAddTarget(null);
+    }
+  };
+
+  const handleCancelAdd = () => {
+    setAddTarget(null);
+  };
+
+  if (isMobile) {
+    return (
+      <div className="plan-view-mobile">
+        <DateRangeSelector onBack={onBack} />
+
+        {activeTab === 'plan' && (
+          <MobileDayView onAddRequest={handleAddRequest} />
+        )}
+        {activeTab === 'shopping' && (
+          <ShoppingList />
+        )}
+
+        {/* Rezeptauswahl als Fullscreen-Overlay wenn "+" getippt */}
+        {addTarget && (
+          <div className="mobile-recipe-overlay">
+            <MealHistory
+              tapMode={addTarget}
+              onTapSelect={handleTapSelect}
+              onCancelTap={handleCancelAdd}
+            />
+          </div>
+        )}
+
+        <MobileBottomTabs activeTab={activeTab} onChange={setActiveTab} />
+      </div>
+    );
+  }
 
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>

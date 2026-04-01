@@ -36,12 +36,12 @@ export function filterMeals(meals: Meal[], options: MealFilterOptions): Meal[] {
         if (!groupTags.some(t => meal.tags?.includes(t))) return false;
       }
     }
-    if (options.ratingFilter) {
+    if (options.ratingFilter !== undefined && options.ratingFilter !== '') {
       const r = meal.rating || 0;
       const cmp = options.ratingComparator || 'gte';
       if (cmp === 'gte' && r < options.ratingFilter) return false;
       if (cmp === 'eq' && r !== options.ratingFilter) return false;
-      if (cmp === 'lte' && (r === 0 || r > options.ratingFilter)) return false;
+      if (cmp === 'lte' && r > options.ratingFilter) return false;
     }
     if (maxPrepTime) {
       const effectivePrepTime = meal.prepTime ?? meal.totalTime;
