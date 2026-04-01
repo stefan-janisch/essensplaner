@@ -6,6 +6,7 @@ import { unlinkSync, existsSync, writeFileSync } from 'fs';
 import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { rowToMeal } from '../utils/transformers.js';
+import { validateExternalUrl, isValidFilename } from '../utils/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,6 +49,7 @@ function getMealForUser(mealId, userId) {
 function deletePhotoFile(photoUrl) {
   if (!photoUrl) return;
   const filename = photoUrl.split('/').pop();
+  if (!filename || !isValidFilename(filename)) return;
   const photoPath = join(__dirname, '..', 'data', 'photos', filename);
   if (existsSync(photoPath)) {
     try { unlinkSync(photoPath); } catch { /* ignore */ }
@@ -357,6 +359,13 @@ router.post('/:id/photo-from-url', async (req, res) => {
     const { url } = req.body;
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL ist erforderlich' });
+    }
+
+    // SSRF protection
+    try {
+      validateExternalUrl(url);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
     }
 
     deletePhotoFile(meal.photo_url);

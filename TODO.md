@@ -52,7 +52,7 @@
 
 
 # Safety features
-- [ ] Check for prompt hacking
-- [ ] Check for SQL injection at the database interaction level. That way, all queries are caught.
+- [x] Check for prompt hacking
+- [x] Check for SQL injection at the database interaction level. That way, all queries are caught.
 
-- Make mobile version
+- [x]Make mobile version

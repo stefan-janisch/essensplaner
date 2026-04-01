@@ -1,0 +1,3 @@
+# Rate Limiting für KI-Endpoints
+# Maximale Anzahl an KI-Anfragen pro Benutzer pro Stunde
+requests_per_hour = 120

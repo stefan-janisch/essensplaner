@@ -4,9 +4,10 @@ import { RecipeForm } from './RecipeForm';
 import { RECIPE_CATEGORIES, getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
 import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
-import type { SortBy } from '../utils/mealFilters';
+import type { SortBy, RatingComparator } from '../utils/mealFilters';
 import type { Meal } from '../types/index.js';
 import type { RecipeFormData } from './RecipeForm';
+import { RecipeChat } from './RecipeChat';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -121,6 +122,66 @@ export function RecipeCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function FormattedRecipeText({ text }: { text: string }) {
+  const blocks = text.split(/\n\n+/);
+
+  // Pre-classify blocks: a short non-numbered block followed by a block with numbered lines is a heading
+  const isNumberedBlock = (b: string) => b.split('\n').some(l => /^\d+\./.test(l.trim()));
+  const blockTypes = blocks.map((block, i) => {
+    const lines = block.split('\n').filter(l => l.trim());
+    if (lines.length === 0) return 'empty' as const;
+    const isSingleShortLine = lines.length === 1 && lines[0].trim().length < 60 && !/^\d+\./.test(lines[0].trim());
+    if (isSingleShortLine && i + 1 < blocks.length && isNumberedBlock(blocks[i + 1])) return 'heading' as const;
+    return 'content' as const;
+  });
+
+  return (
+    <div style={{ margin: '8px 0', fontSize: '14px', color: 'var(--text)', textAlign: 'left' }}>
+      {blocks.map((block, bi) => {
+        const lines = block.split('\n').filter(l => l.trim());
+        if (lines.length === 0) return null;
+
+        if (blockTypes[bi] === 'heading') {
+          return (
+            <div key={bi} style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: '6px', marginTop: bi > 0 ? '16px' : 0 }}>
+              {lines[0].trim()}
+            </div>
+          );
+        }
+
+        // Check if first line within a multi-line block is a heading
+        const hasNumberedLines = lines.some(l => /^\d+\./.test(l.trim()));
+        const firstIsInlineHeading = lines.length > 1 && hasNumberedLines
+          && !(/^\d+\./.test(lines[0].trim())) && lines[0].trim().length < 60;
+
+        return (
+          <div key={bi} style={{ marginBottom: bi < blocks.length - 1 ? '12px' : 0 }}>
+            {firstIsInlineHeading && (
+              <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: '6px' }}>
+                {lines[0].trim()}
+              </div>
+            )}
+            {(firstIsInlineHeading ? lines.slice(1) : lines).map((line, li) => {
+              const numbered = line.trim().match(/^(\d+)\.\s+(.*)/);
+              if (numbered) {
+                return (
+                  <div key={li} style={{ display: 'flex', gap: '8px', marginBottom: '8px', lineHeight: 1.4 }}>
+                    <span style={{ minWidth: '24px', textAlign: 'right', color: 'var(--text-muted)', flexShrink: 0 }}>
+                      {numbered[1]}.
+                    </span>
+                    <span>{numbered[2]}</span>
+                  </div>
+                );
+              }
+              return <div key={li} style={{ marginBottom: '4px' }}>{line.trim()}</div>;
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -262,8 +323,8 @@ export function RecipeDetailModal({
                 return (
                   <li key={i}>
                     {ing.unit === 'NB' || ing.unit === 'Nach Belieben'
-                      ? `${ing.name} (nach Belieben)`
-                      : `${Number(scaled.toFixed(1))} ${ing.unit} ${ing.name}`}
+                      ? <>{ing.name} <span style={{ color: 'var(--text-muted)' }}>(nach Belieben)</span></>
+                      : <><strong>{Number(scaled.toFixed(1))} {ing.unit}</strong> {ing.name}</>}
                   </li>
                 );
               })}
@@ -272,10 +333,12 @@ export function RecipeDetailModal({
           {meal.recipeText && (
             <div style={{ textAlign: 'left' }}>
               <strong style={{ fontSize: '14px', color: 'var(--text-h)' }}>Zubereitung</strong>
-              <p style={{ margin: '8px 0', fontSize: '14px', color: 'var(--text)', whiteSpace: 'pre-wrap', textAlign: 'left' }}>{meal.recipeText}</p>
+              <FormattedRecipeText text={meal.recipeText} />
             </div>
           )}
         </div>
+
+        <RecipeChat meal={meal} />
       </div>
     </div>
   );
@@ -394,7 +457,10 @@ function downloadFile(content: string, filename: string) {
 
 function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
   const { activePlan, allMealsForActivePlan, addMealToSlot, state, selectPlan } = useMealPlan();
-  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(activePlan?.id ?? null);
+  const activePlans = state.plans.filter(p => !p.archived);
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(
+    activePlan && !activePlan.archived ? activePlan.id : activePlans[0]?.id ?? null
+  );
 
   // Load entries for selected plan if needed
   React.useEffect(() => {
@@ -405,6 +471,8 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
 
   const plan = state.plans.find(p => p.id === selectedPlanId);
   const entries = plan?.entries || [];
+  const isMenu = plan?.planType === 'menu';
+  const courses = plan?.courses || [];
 
   const dates = plan?.startDate && plan?.endDate
     ? (() => {
@@ -425,11 +493,18 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
       })()
     : [];
 
-  const mealTypes: Array<{ key: string; label: string }> = [
+  const weeklyMealTypes: Array<{ key: string; label: string }> = [
     { key: 'breakfast', label: 'Frühst.' },
     { key: 'lunch', label: 'Mittag' },
     { key: 'dinner', label: 'Abend' },
   ];
+
+  const menuMealTypes: Array<{ key: string; label: string }> = [
+    { key: 'food', label: 'Essen' },
+    { key: 'drinks', label: 'Getränke' },
+  ];
+
+  const mealTypes = isMenu ? menuMealTypes : weeklyMealTypes;
 
   const formatDate = (dateStr: string) => {
     const [, m, d] = dateStr.split('-');
@@ -439,7 +514,7 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
   };
 
   const handleSlotClick = (date: string, mealType: string) => {
-    addMealToSlot(date, mealType as 'breakfast' | 'lunch' | 'dinner', meal.id);
+    addMealToSlot(date, mealType as 'breakfast' | 'lunch' | 'dinner' | 'food' | 'drinks', meal.id);
     onClose();
   };
 
@@ -449,6 +524,16 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
       .map(e => allMealsForActivePlan.find(m => m.id === e.mealId))
       .filter(Boolean) as Meal[];
   };
+
+  // Rows: dates for weekly plans, courses for menu plans
+  const rows = isMenu
+    ? courses.sort((a, b) => a.sortOrder - b.sortOrder).map(c => ({
+        key: `course_${c.id}`,
+        label: c.label || `Gang ${c.sortOrder + 1}`,
+      }))
+    : dates.map(d => ({ key: d, label: formatDate(d) }));
+
+  const hasContent = rows.length > 0;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -460,44 +545,48 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
           <button className="btn-ghost" onClick={onClose} style={{ fontSize: '20px' }}>×</button>
         </div>
 
-        {state.plans.length > 1 && (
+        {activePlans.length > 1 && (
           <select
             className="input"
             value={selectedPlanId ?? ''}
             onChange={e => setSelectedPlanId(Number(e.target.value))}
             style={{ width: '100%', marginBottom: '10px', fontSize: '13px' }}
           >
-            {state.plans.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+            {activePlans.map(p => (
+              <option key={p.id} value={p.id}>{p.name}{p.planType === 'menu' ? ' (Menü)' : ''}</option>
             ))}
           </select>
         )}
 
-        {dates.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--text)', padding: '20px' }}>Kein Plan ausgewählt</div>
+        {!hasContent ? (
+          <div style={{ textAlign: 'center', color: 'var(--text)', padding: '20px' }}>
+            {isMenu ? 'Keine Gänge vorhanden' : 'Kein Plan ausgewählt'}
+          </div>
         ) : (
           <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
               <thead>
                 <tr>
-                  <th style={{ padding: '4px 6px', textAlign: 'left', borderBottom: '2px solid var(--border-light)', color: 'var(--text)', fontWeight: 600, fontSize: '11px' }}>Datum</th>
+                  <th style={{ padding: '4px 6px', textAlign: 'left', borderBottom: '2px solid var(--border-light)', color: 'var(--text)', fontWeight: 600, fontSize: '11px' }}>
+                    {isMenu ? 'Gang' : 'Datum'}
+                  </th>
                   {mealTypes.map(mt => (
                     <th key={mt.key} style={{ padding: '4px 6px', textAlign: 'center', borderBottom: '2px solid var(--border-light)', color: 'var(--text)', fontWeight: 600, fontSize: '11px' }}>{mt.label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {dates.map(date => (
-                  <tr key={date}>
+                {rows.map(row => (
+                  <tr key={row.key}>
                     <td style={{ padding: '3px 6px', borderBottom: '1px solid var(--border-light)', whiteSpace: 'nowrap', fontWeight: 500, color: 'var(--text-h)' }}>
-                      {formatDate(date)}
+                      {row.label}
                     </td>
                     {mealTypes.map(mt => {
-                      const slotMeals = getSlotMeals(date, mt.key);
+                      const slotMeals = getSlotMeals(row.key, mt.key);
                       return (
                         <td
                           key={mt.key}
-                          onClick={() => handleSlotClick(date, mt.key)}
+                          onClick={() => handleSlotClick(row.key, mt.key)}
                           style={{
                             padding: '3px 6px',
                             borderBottom: '1px solid var(--border-light)',
@@ -541,6 +630,8 @@ export const RecipeManagement: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [maxPrepTime, setMaxPrepTime] = useState<number | ''>('');
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
+  const [ratingFilter, setRatingFilter] = useState<number | ''>('');
+  const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
 
   const [viewingMeal, setViewingMeal] = useState<Meal | null>(null);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
@@ -553,8 +644,8 @@ export const RecipeManagement: React.FC = () => {
   const tagValuesByGroup = useMemo(() => buildTagValuesByGroup(state.meals), [state.meals]);
 
   const filteredMeals = useMemo(() =>
-    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery }),
-    [state.meals, starFilter, categoryFilter, tagFilter, searchQuery, maxPrepTime, maxTotalTime]
+    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator }),
+    [state.meals, starFilter, categoryFilter, tagFilter, searchQuery, maxPrepTime, maxTotalTime, ratingFilter, ratingComparator]
   );
 
   const sortedMeals = useMemo(() =>
@@ -738,6 +829,26 @@ export const RecipeManagement: React.FC = () => {
           >
             ⭐ Favoriten
           </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text)', flexShrink: 0 }}>Bewertung:</span>
+          <select className="input" value={ratingComparator} onChange={(e) => setRatingComparator(e.target.value as RatingComparator)} style={{ width: '55px', fontSize: '12px', padding: '4px 4px' }}>
+            <option value="gte">≥</option>
+            <option value="eq">=</option>
+            <option value="lte">≤</option>
+          </select>
+          <div style={{ display: 'flex', gap: '2px' }}>
+            {[1, 2, 3, 4, 5].map(s => (
+              <span
+                key={s}
+                onClick={() => setRatingFilter(ratingFilter === s ? '' : s)}
+                style={{ cursor: 'pointer', fontSize: '18px', opacity: ratingFilter && s <= ratingFilter ? 1 : 0.3 }}
+              >
+                ★
+              </span>
+            ))}
+          </div>
         </div>
 
         {TAG_GROUPS.map(group => {

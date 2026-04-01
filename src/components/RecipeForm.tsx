@@ -267,6 +267,15 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
           setPhotoFile(null);
           setDeletePhoto(false);
         }
+        // Auto-clean recipe text
+        if (parsed.recipeText?.trim()) {
+          try {
+            const cleaned = await cleanRecipeText(parsed.recipeText);
+            setRecipeText(cleaned);
+          } catch {
+            // Cleaning failed — keep the raw text
+          }
+        }
         // Auto-parse ingredients (dual lists)
         try {
           const parsedIngs = await parseIngredientsWithAI(parsed.ingredientText);
@@ -465,14 +474,14 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
         <div>
           <label style={{ display: 'block', marginBottom: '5px' }}>Aktive Zeit:</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input className="input" type="number" min="0" value={prepTime} onChange={(e) => setPrepTime(e.target.value ? parseInt(e.target.value) : '')} style={{ width: '70px' }} placeholder="—" />
+            <input className="input" type="number" min="0" step="5" value={prepTime} onChange={(e) => setPrepTime(e.target.value ? parseInt(e.target.value) : '')} style={{ width: '70px' }} placeholder="—" />
             <span style={{ fontSize: '12px', color: 'var(--text)' }}>Min.</span>
           </div>
         </div>
         <div>
           <label style={{ display: 'block', marginBottom: '5px' }}>Gesamtzeit:</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input className="input" type="number" min="0" value={totalTime} onChange={(e) => setTotalTime(e.target.value ? parseInt(e.target.value) : '')} style={{ width: '70px' }} placeholder="—" />
+            <input className="input" type="number" min="0" step="5" value={totalTime} onChange={(e) => setTotalTime(e.target.value ? parseInt(e.target.value) : '')} style={{ width: '70px' }} placeholder="—" />
             <span style={{ fontSize: '12px', color: 'var(--text)' }}>Min.</span>
           </div>
         </div>

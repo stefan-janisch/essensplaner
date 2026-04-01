@@ -1,12 +1,50 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeCard, RecipeDetailModal, EditRecipeModal, CreateRecipeModal } from './RecipeManagement';
 import { getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
 import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
-import type { SortBy } from '../utils/mealFilters';
-import type { Meal } from '../types/index.js';
+import type { SortBy, RatingComparator } from '../utils/mealFilters';
+import type { Meal, MealPlanEntry } from '../types/index.js';
+
+/**
+ * For each meal, compute how many of its shopping ingredients are NOT
+ * already covered by the current plan's shopping list.
+ * Returns a Map<mealId, { extra: number, total: number, extraNames: string[] }>.
+ */
+function computeAdditionalIngredients(
+  meals: Meal[],
+  planEntries: MealPlanEntry[],
+  allMeals: Meal[],
+): Map<string, { extra: number; total: number; extraNames: string[] }> {
+  // Build set of normalized ingredient names already in the plan
+  const planIngredientNames = new Set<string>();
+  for (const entry of planEntries) {
+    if (!entry.enabled || !entry.mealId) continue;
+    const meal = allMeals.find(m => m.id === entry.mealId);
+    if (!meal) continue;
+    const ings = meal.shoppingIngredients?.length ? meal.shoppingIngredients : meal.ingredients;
+    for (const ing of ings) {
+      planIngredientNames.add(ing.name.toLowerCase().trim());
+    }
+  }
+
+  const result = new Map<string, { extra: number; total: number; extraNames: string[] }>();
+  for (const meal of meals) {
+    const ings = meal.shoppingIngredients?.length ? meal.shoppingIngredients : meal.ingredients;
+    // Filter out "nach Belieben" ingredients
+    const meaningful = ings.filter(i => i.unit !== 'NB' && i.unit !== 'Nach Belieben');
+    const extraNames: string[] = [];
+    for (const ing of meaningful) {
+      if (!planIngredientNames.has(ing.name.toLowerCase().trim())) {
+        extraNames.push(ing.name);
+      }
+    }
+    result.set(meal.id, { extra: extraNames.length, total: meaningful.length, extraNames });
+  }
+  return result;
+}
 
 function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit: () => void; onSetRating: (r: number) => void }) {
   const { toggleMealStar, deleteMeal } = useMealPlan();
@@ -53,21 +91,25 @@ function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit
 }
 
 export const MealHistory: React.FC = () => {
-  const { state, updateMeal } = useMealPlan();
+  const { state, activePlan, updateMeal } = useMealPlan();
   const [searchQuery, setSearchQuery] = useState('');
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [maxPrepTime, setMaxPrepTime] = useState<number | ''>('');
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
+  const [ratingFilter, setRatingFilter] = useState<number | ''>('');
+  const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [showFilters, setShowFilters] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [smartMode, setSmartMode] = useState(false);
+  const [randomIds, setRandomIds] = useState<string[] | null>(null);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
     + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
-    + (starFilter !== 'all' ? 1 : 0);
+    + (starFilter !== 'all' ? 1 : 0) + (ratingFilter ? 1 : 0);
 
   const categories = useMemo(() =>
     [...new Set(state.meals.map(m => m.category).filter(Boolean))] as string[],
@@ -77,14 +119,48 @@ export const MealHistory: React.FC = () => {
   const tagValuesByGroup = useMemo(() => buildTagValuesByGroup(state.meals), [state.meals]);
 
   const filteredMeals = useMemo(() =>
-    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery }),
-    [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery]
+    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator }),
+    [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator]
   );
 
   const sortedMeals = useMemo(() =>
     sortMeals(filteredMeals, sortBy, { pinStarred: true }),
     [filteredMeals, sortBy]
   );
+
+  // "Passt zum Plan" — compute additional ingredients for each meal
+  const planEntries = activePlan?.entries || [];
+  const planMealIds = useMemo(() => new Set(planEntries.filter(e => e.enabled).map(e => e.mealId)), [planEntries]);
+
+  const additionalIngredientsMap = useMemo(() => {
+    if (!smartMode || planEntries.length === 0) return null;
+    // Exclude meals already in the plan
+    const candidates = filteredMeals.filter(m => !planMealIds.has(m.id));
+    return computeAdditionalIngredients(candidates, planEntries, state.meals);
+  }, [smartMode, filteredMeals, planEntries, planMealIds, state.meals]);
+
+  const displayMeals = useMemo(() => {
+    if (randomIds) {
+      // Show only the randomly picked meals, in their random order
+      return randomIds.map(id => state.meals.find(m => m.id === id)).filter(Boolean) as Meal[];
+    }
+    if (!smartMode || !additionalIngredientsMap) return sortedMeals;
+    return filteredMeals
+      .filter(m => !planMealIds.has(m.id) && additionalIngredientsMap.has(m.id))
+      .sort((a, b) => {
+        const aExtra = additionalIngredientsMap.get(a.id)!.extra;
+        const bExtra = additionalIngredientsMap.get(b.id)!.extra;
+        if (aExtra !== bExtra) return aExtra - bExtra;
+        return a.name.localeCompare(b.name);
+      });
+  }, [randomIds, smartMode, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals]);
+
+  const pickRandom = useCallback(() => {
+    const pool = filteredMeals.length > 3 ? filteredMeals : state.meals;
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    setRandomIds(shuffled.slice(0, 3).map(m => m.id));
+    setSmartMode(false);
+  }, [filteredMeals, state.meals]);
 
   const handleSetRating = async (mealId: string, rating: number) => {
     const meal = state.meals.find(m => m.id === mealId);
@@ -99,6 +175,8 @@ export const MealHistory: React.FC = () => {
     setTagFilter([]);
     setMaxPrepTime('');
     setMaxTotalTime('');
+    setRatingFilter('');
+    setRatingComparator('gte');
     setSortBy('name');
     setStarFilter('all');
   };
@@ -106,8 +184,27 @@ export const MealHistory: React.FC = () => {
   return (
     <div className="panel" style={{ height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-        <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Rezepte ({filteredMeals.length})</h3>
+        <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Rezepte ({displayMeals.length})</h3>
         <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>+ Neu</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+        {planEntries.length > 0 && (
+          <button
+            className={`pill ${smartMode ? 'pill-active' : ''}`}
+            onClick={() => { setSmartMode(!smartMode); setRandomIds(null); }}
+            style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
+          >
+            🧩 Passt zum Plan
+          </button>
+        )}
+        <button
+          className={`pill ${randomIds ? 'pill-active' : ''}`}
+          onClick={() => { if (randomIds) { setRandomIds(null); } else { pickRandom(); } }}
+          style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
+        >
+          🎲 Zufällig
+        </button>
       </div>
 
       <input
@@ -174,6 +271,26 @@ export const MealHistory: React.FC = () => {
               </select>
             </div>
 
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '6px', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text)', flexShrink: 0 }}>Bewertung:</span>
+              <select className="input" value={ratingComparator} onChange={(e) => setRatingComparator(e.target.value as RatingComparator)} style={{ width: '50px', fontSize: '11px', padding: '4px 4px' }}>
+                <option value="gte">≥</option>
+                <option value="eq">=</option>
+                <option value="lte">≤</option>
+              </select>
+              <div style={{ display: 'flex', gap: '2px' }}>
+                {[1, 2, 3, 4, 5].map(s => (
+                  <span
+                    key={s}
+                    onClick={() => setRatingFilter(ratingFilter === s ? '' : s)}
+                    style={{ cursor: 'pointer', fontSize: '16px', opacity: ratingFilter && s <= ratingFilter ? 1 : 0.3 }}
+                  >
+                    ★
+                  </span>
+                ))}
+              </div>
+            </div>
+
             {TAG_GROUPS.map(group => {
               const values = tagValuesByGroup[group.key];
               if (!values || values.size === 0) return null;
@@ -216,20 +333,43 @@ export const MealHistory: React.FC = () => {
 
       {/* Recipe cards */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {sortedMeals.length === 0 ? (
+        {displayMeals.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--text)', padding: '20px' }}>
-            {searchQuery.trim() || activeFilterCount > 0 ? 'Keine Treffer' : 'Keine Rezepte vorhanden'}
+            {randomIds ? 'Keine Rezepte vorhanden' : smartMode ? 'Keine passenden Rezepte gefunden' : searchQuery.trim() || activeFilterCount > 0 ? 'Keine Treffer' : 'Keine Rezepte vorhanden'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {sortedMeals.map(meal => (
-              <DraggableRecipeCard
-                key={meal.id}
-                meal={meal}
-                onEdit={() => setEditingMeal(meal)}
-                onSetRating={(r) => handleSetRating(meal.id, r)}
-              />
-            ))}
+            {displayMeals.map(meal => {
+              const info = additionalIngredientsMap?.get(meal.id);
+              return (
+                <div key={meal.id}>
+                  {smartMode && info && (
+                    <div
+                      style={{ fontSize: '11px', marginBottom: '3px', padding: '2px 8px', color: info.extra === 0 ? 'var(--color-success)' : 'var(--text-muted)' }}
+                      title={info.extra > 0 ? `Zusätzlich: ${info.extraNames.join(', ')}` : 'Alle Zutaten bereits auf der Einkaufsliste'}
+                    >
+                      {info.extra === 0
+                        ? '✓ Alle Zutaten vorhanden'
+                        : `+${info.extra} ${info.extra === 1 ? 'Zutat' : 'Zutaten'} · ${info.extraNames.slice(0, 3).join(', ')}${info.extraNames.length > 3 ? ` …` : ''}`}
+                    </div>
+                  )}
+                  <DraggableRecipeCard
+                    meal={meal}
+                    onEdit={() => setEditingMeal(meal)}
+                    onSetRating={(r) => handleSetRating(meal.id, r)}
+                  />
+                </div>
+              );
+            })}
+            {randomIds && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={pickRandom}
+                style={{ width: '100%', marginTop: '8px', fontSize: '12px' }}
+              >
+                🎲 Nochmal würfeln
+              </button>
+            )}
           </div>
         )}
       </div>
