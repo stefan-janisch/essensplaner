@@ -5,6 +5,7 @@ import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import { ExtraItemRow } from './MealPlanTable';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
+import { DayNutritionDot } from './DayNutritionDot';
 
 interface MobileDayViewProps {
   onAddRequest: (date: string, mealType: MealType) => void;
@@ -260,6 +261,7 @@ export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) =>
               <div className="mobile-day-header">
                 {format(parseISO(date), 'EEEE', { locale: de })}
                 <span className="mobile-day-date"> {format(parseISO(date), 'dd.MM.')}</span>
+                <DayNutritionDot date={date} />
               </div>
 
               {MEAL_TYPES.map(({ type, label }) => {

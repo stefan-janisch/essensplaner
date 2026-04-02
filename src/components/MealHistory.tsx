@@ -118,6 +118,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
   const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
   const [sortBy, setSortBy] = useState<SortBy>('name');
+  const [minProtein, setMinProtein] = useState<number | ''>('');
   const [showFilters, setShowFilters] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -126,7 +127,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
     + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
-    + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0);
+    + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0) + (minProtein !== '' ? 1 : 0);
 
   const categories = useMemo(() =>
     [...new Set(state.meals.map(m => m.category).filter(Boolean))] as string[],
@@ -136,7 +137,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const tagValuesByGroup = useMemo(() => buildTagValuesByGroup(state.meals), [state.meals]);
 
   const filteredMeals = useMemo(() =>
-    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator }),
+    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator, minProtein }),
     [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator]
   );
 
@@ -196,6 +197,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
     setRatingComparator('gte');
     setSortBy('name');
     setStarFilter('all');
+    setMinProtein('');
   };
 
   return (
@@ -298,6 +300,9 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                 <option value="name">A-Z</option>
                 <option value="rating">Bewertung</option>
                 <option value="newest">Neueste</option>
+                <option value="kcal">Kalorien ↑</option>
+                <option value="protein">Protein ↓</option>
+                <option value="fiber">Ballaststoffe ↓</option>
               </select>
             </div>
 
@@ -326,6 +331,10 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                   </span>
                 ))}
               </div>
+              <span style={{ fontSize: '11px', color: 'var(--text)', flexShrink: 0, marginLeft: '6px' }}>P≥</span>
+              <input className="input" type="number" min="0" placeholder="g" value={minProtein}
+                onChange={e => setMinProtein(e.target.value ? Math.max(0, parseInt(e.target.value)) : '')}
+                style={{ width: '40px', fontSize: '11px', padding: '4px 4px' }} />
             </div>
 
             {TAG_GROUPS.map(group => {

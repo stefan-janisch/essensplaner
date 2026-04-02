@@ -13,9 +13,10 @@ export interface MealFilterOptions {
   searchQuery: string;
   ratingFilter?: number | '';
   ratingComparator?: RatingComparator;
+  minProtein?: number | '';
 }
 
-export type SortBy = 'name' | 'rating' | 'newest';
+export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'fiber';
 
 export function filterMeals(meals: Meal[], options: MealFilterOptions): Meal[] {
   const { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery } = options;
@@ -43,6 +44,10 @@ export function filterMeals(meals: Meal[], options: MealFilterOptions): Meal[] {
       if (cmp === 'eq' && r !== options.ratingFilter) return false;
       if (cmp === 'lte' && r > options.ratingFilter) return false;
     }
+    if (options.minProtein !== undefined && options.minProtein !== '') {
+      const protein = meal.nutritionPerServing?.protein ?? 0;
+      if (protein < options.minProtein) return false;
+    }
     if (maxPrepTime) {
       const effectivePrepTime = meal.prepTime ?? meal.totalTime;
       if (!effectivePrepTime || effectivePrepTime > maxPrepTime) return false;
@@ -68,6 +73,9 @@ export function sortMeals(meals: Meal[], sortBy: SortBy, options?: { pinStarred?
     switch (sortBy) {
       case 'rating': return (b.rating || 0) - (a.rating || 0);
       case 'newest': return (b.id > a.id ? 1 : -1);
+      case 'kcal': return (a.nutritionPerServing?.kcal ?? Infinity) - (b.nutritionPerServing?.kcal ?? Infinity);
+      case 'protein': return (b.nutritionPerServing?.protein ?? 0) - (a.nutritionPerServing?.protein ?? 0);
+      case 'fiber': return (b.nutritionPerServing?.fiber ?? 0) - (a.nutritionPerServing?.fiber ?? 0);
       case 'name':
       default: return a.name.localeCompare(b.name);
     }

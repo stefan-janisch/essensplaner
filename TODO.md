@@ -61,45 +61,6 @@
 
 - [x] AI-Kosten-Tracking in DB: Pro AI Endpoint und User werden die Kosten und Anzahl der Aufrufe getrackt -> Admin-Account hat Admin-Tab mit eigenem Sidebar-Menü. Unter API-Kosten kann er eine detaillierte Aufstellung einsehen.
 
-- [ ] Auf aktuelle Modelle umsteigen (GPT 5.2 und GPT 5 mini). Preise:
-Model	Input	Cached input	Output
-gpt-5.2
-$1.75
-$0.175
-$14.00
-gpt-5.2-pro
-$21.00
--
-$168.00
-gpt-5.1
-$1.25
-$0.125
-$10.00
-gpt-5
-$1.25
-$0.125
-$10.00
-gpt-5-mini
-$0.25
-$0.025
-$2.00
-gpt-5-nano
-$0.05
-$0.005
-$0.40
-gpt-5-pro
-$15.00
--
-$120.00
-gpt-4.1
-$2.00
-$0.50
-$8.00
-gpt-4.1-mini
-$0.40
-$0.10
-$1.60
-gpt-4.1-nano
-$0.10
-$0.025
-$0.40
+- [ ] Auf aktuelle Modelle umsteigen (GPT 5.2 und GPT 5 mini).
+
+- [x] Im Meal Plan: Spalte hinzufügen, die Grün/Gelb/Rot-Bewertung für Nährstoffe für diesen Tag anzeigt. Beim Hovern wird eine detaillierte Aufschlüsselung der Nährstoffe angezeigt. Überlege dir, wie wir das gut in die Mobile-Version integrieren können. Vielleicht als klickbares Popup?

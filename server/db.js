@@ -247,4 +247,36 @@ if (version < 11) {
   console.log('✓ Migration v11 complete');
 }
 
+if (version < 12) {
+  console.log('Running migration v12: nutrition profile + weight history...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('nutrition_profile')) {
+    db.exec('ALTER TABLE users ADD COLUMN nutrition_profile TEXT');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS weight_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      weight REAL NOT NULL,
+      body_fat REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_weight_history_user ON weight_history(user_id, date);
+  `);
+  db.pragma('user_version = 12');
+  console.log('✓ Migration v12 complete');
+}
+
+if (version < 13) {
+  console.log('Running migration v13: default servings per plan...');
+  const planCols = db.prepare("PRAGMA table_info(meal_plans)").all().map(c => c.name);
+  if (!planCols.includes('default_servings')) {
+    db.exec('ALTER TABLE meal_plans ADD COLUMN default_servings INTEGER');
+  }
+  db.pragma('user_version = 13');
+  console.log('✓ Migration v13 complete');
+}
+
 export default db;

@@ -5,6 +5,7 @@ import { de } from 'date-fns/locale';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
+import { DayNutritionDot } from './DayNutritionDot';
 
 export interface MealCellItemProps {
   entry: MealPlanEntry;
@@ -350,6 +351,7 @@ export const MealPlanTable: React.FC = () => {
               <td style={{ whiteSpace: 'nowrap', fontSize: '12px', lineHeight: 1.4 }}>
                 <div style={{ fontWeight: 600 }}>{format(parseISO(date), 'EEEE', { locale: de })}</div>
                 <div style={{ color: 'var(--text)' }}>{format(parseISO(date), 'dd.MM.yyyy')}</div>
+                <DayNutritionDot date={date} />
               </td>
               <MealCell date={date} mealType="breakfast" />
               <MealCell date={date} mealType="lunch" />

@@ -648,6 +648,7 @@ export const RecipeManagement: React.FC = () => {
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
   const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
+  const [minProtein, setMinProtein] = useState<number | ''>('');
 
   const [viewingMeal, setViewingMeal] = useState<Meal | null>(null);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
@@ -660,7 +661,7 @@ export const RecipeManagement: React.FC = () => {
   const tagValuesByGroup = useMemo(() => buildTagValuesByGroup(state.meals), [state.meals]);
 
   const filteredMeals = useMemo(() =>
-    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator }),
+    filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator, minProtein }),
     [state.meals, starFilter, categoryFilter, tagFilter, searchQuery, maxPrepTime, maxTotalTime, ratingFilter, ratingComparator]
   );
 
@@ -829,6 +830,9 @@ export const RecipeManagement: React.FC = () => {
             <option value="name">Name A-Z</option>
             <option value="rating">Bewertung</option>
             <option value="newest">Neueste</option>
+            <option value="kcal">Kalorien ↑</option>
+            <option value="protein">Protein ↓</option>
+            <option value="fiber">Ballaststoffe ↓</option>
           </select>
         </div>
 
@@ -872,6 +876,10 @@ export const RecipeManagement: React.FC = () => {
               </span>
             ))}
           </div>
+          <span style={{ fontSize: '13px', color: 'var(--text)', flexShrink: 0, marginLeft: '12px' }}>P≥</span>
+          <input className="input" type="number" min="0" placeholder="g" value={minProtein}
+            onChange={e => setMinProtein(e.target.value ? Math.max(0, parseInt(e.target.value)) : '')}
+            style={{ width: '50px', fontSize: '12px', padding: '4px 6px' }} />
         </div>
 
         {TAG_GROUPS.map(group => {

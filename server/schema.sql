@@ -6,8 +6,20 @@ CREATE TABLE IF NOT EXISTS users (
   is_admin INTEGER NOT NULL DEFAULT 0,
   nutrition_targets TEXT,
   meals_per_day INTEGER NOT NULL DEFAULT 3,
+  nutrition_profile TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS weight_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  weight REAL NOT NULL,
+  body_fat REAL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_weight_history_user ON weight_history(user_id, date);
 
 CREATE TABLE IF NOT EXISTS ai_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +64,7 @@ CREATE TABLE IF NOT EXISTS meal_plans (
   start_date TEXT,
   end_date TEXT,
   archived INTEGER NOT NULL DEFAULT 0,
+  default_servings INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_meal_plans_user_id ON meal_plans(user_id);

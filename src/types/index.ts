@@ -22,6 +22,77 @@ export const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
   fiber: 30,
 };
 
+export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderate' | 'very_active';
+export type TrainingIntensity = 'light' | 'moderate' | 'intense';
+export type FitnessGoal = 'bulk' | 'maintain' | 'cut';
+export type DayType = 'strength' | 'cardio' | 'rest';
+
+export type WeekDayTypes = {
+  mon: DayType; tue: DayType; wed: DayType; thu: DayType;
+  fri: DayType; sat: DayType; sun: DayType;
+};
+
+export type MicroKey = 'magnesiumMg' | 'zincMg' | 'ironMg' | 'vitaminDIu' | 'omega3G' | 'calciumMg';
+
+export type NutritionProfile = {
+  age: number;
+  gender: 'm' | 'f';
+  heightCm: number;
+  weightKg: number;
+  bodyFatPercent?: number;
+  activityLevel: ActivityLevel;
+  strengthIntensity: TrainingIntensity;
+  cardioIntensity: TrainingIntensity;
+  goal: FitnessGoal;
+  aggressiveness: number; // 0-100
+  weekDayTypes: WeekDayTypes;
+  supplementedMicros?: MicroKey[]; // micros covered by supplements
+};
+
+export const DEFAULT_NUTRITION_PROFILE: NutritionProfile = {
+  age: 30,
+  gender: 'm',
+  heightCm: 178,
+  weightKg: 80,
+  activityLevel: 'lightly_active',
+  strengthIntensity: 'moderate',
+  cardioIntensity: 'moderate',
+  goal: 'maintain',
+  aggressiveness: 50,
+  weekDayTypes: { mon: 'strength', tue: 'rest', wed: 'strength', thu: 'cardio', fri: 'strength', sat: 'rest', sun: 'rest' },
+};
+
+export type WeightEntry = {
+  id: number;
+  date: string;
+  weight: number;
+  bodyFat?: number;
+};
+
+export type MicroTargets = {
+  magnesiumMg: number;
+  zincMg: number;
+  ironMg: number;
+  vitaminDIu: number;
+  omega3G: number;
+  calciumMg: number;
+};
+
+export type CalculatedNutrition = {
+  bmr: number;
+  tdee: number;
+  targetKcal: number;
+  proteinG: number;
+  proteinKcal: number;
+  fatG: number;
+  fatKcal: number;
+  carbsG: number;
+  carbsKcal: number;
+  fiberG: number;
+  waterL: number;
+  micros: MicroTargets;
+};
+
 export type Ingredient = {
   name: string;
   amount: number;
@@ -89,6 +160,7 @@ export type MealPlan = {
   startDate: string | null;
   endDate: string | null;
   archived?: boolean;
+  defaultServings?: number;
   entries: MealPlanEntry[];
   extras: ExtraItem[];
   courses?: MenuCourse[];

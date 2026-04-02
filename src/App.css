@@ -1234,7 +1234,7 @@ label {
 /* ======================== User Settings ======================== */
 
 .user-settings {
-  max-width: 600px;
+  max-width: 750px;
   margin: 0 auto;
   padding: 24px 32px;
 }
@@ -1305,4 +1305,419 @@ label {
   .settings-nutrition-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ======================== Nutrition Calculator ======================== */
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+}
+
+.nutrition-calculator {
+  max-width: 100%;
+}
+
+.calc-section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.calc-section h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+.calc-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
+}
+
+.goal-toggles {
+  display: flex;
+  gap: 6px;
+}
+
+/* Results */
+.calc-results {
+  background: var(--surface-0);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.calc-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.calc-results-header h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.calc-formula-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: #e8e8e8;
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.calc-energy-cards {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.calc-card {
+  flex: 1;
+  text-align: center;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: var(--radius-sm);
+}
+
+.calc-card-accent {
+  background: #e0e7ff;
+}
+
+.calc-card-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.calc-card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.calc-macros {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.calc-macro-chart {
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.macro-donut {
+  width: 120px;
+  height: 120px;
+}
+
+.calc-macro-legend {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.calc-macro-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 3px;
+}
+
+.calc-macro-table {
+  flex: 1;
+}
+
+.calc-macro-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.calc-macro-row span:first-child {
+  flex: 1;
+}
+
+.calc-macro-row strong {
+  width: 60px;
+  text-align: right;
+}
+
+.calc-macro-kcal {
+  width: 70px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.calc-extras {
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+
+.calc-extras h5 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.calc-extra-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.calc-micro-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+
+.calc-micro-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.calc-micro-item input[type="checkbox"] {
+  margin: 0;
+}
+
+.calc-supplement-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: #e8e8e8;
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+/* Week Editor */
+.week-editor {
+  margin-top: 24px;
+  margin-bottom: 24px;
+}
+
+.week-editor h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.week-day-col {
+  text-align: center;
+}
+
+.week-day-label {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.week-day-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.week-day-btn {
+  font-size: 10px;
+  padding: 3px 2px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.week-day-btn.active {
+  font-weight: 600;
+}
+
+.week-day-values {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.week-day-values span {
+  display: block;
+}
+
+.week-day-hint {
+  font-size: 9px;
+  color: var(--accent);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Weight History */
+.weight-history {
+  margin-top: 24px;
+}
+
+.weight-history h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+.weight-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.weight-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.weight-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 2px solid #ddd;
+  font-weight: 600;
+  color: #555;
+}
+
+.weight-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #eee;
+}
+
+@media (max-width: 768px) {
+  .calc-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .calc-energy-cards {
+    flex-direction: column;
+  }
+
+  .calc-macros {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .week-grid {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+  }
+
+  .week-day-btn {
+    font-size: 8px;
+    padding: 2px 1px;
+  }
+
+  .week-day-values {
+    font-size: 8px;
+  }
+
+  .calc-micro-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ======================== Day Nutrition Dot ======================== */
+
+.day-nutrition-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.day-nutrition-portal-tooltip {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  white-space: nowrap;
+  min-width: 220px;
+}
+
+.day-nutrition-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.day-nutrition-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.day-nutrition-dot-mini {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.day-nutrition-label {
+  width: 60px;
+  color: #555;
+}
+
+.day-nutrition-values {
+  flex: 1;
+  text-align: right;
+  color: #333;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-nutrition-pct {
+  width: 38px;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-nutrition-popup {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: auto;
+  max-width: 300px;
+  width: 90%;
+}
+
+/* Mobile: dot inline with header */
+.mobile-day-header .day-nutrition-dot {
+  margin-top: 0;
+  margin-left: 8px;
+  vertical-align: middle;
 }

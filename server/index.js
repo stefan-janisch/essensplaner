@@ -711,7 +711,7 @@ REGELN:
 
     // --- Call OpenAI ---
     const completion = await openaiClient.chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-5.2',
       messages: [
         { role: 'system', content: systemPrompt },
         ...sanitizedMessages,
@@ -765,7 +765,7 @@ app.post('/api/estimate-nutrition', requireAuth, aiLimiter, async (req, res) => 
     }).join('\n');
 
     const completion = await openaiClient.chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-5.2',
       messages: [
         {
           role: 'system',

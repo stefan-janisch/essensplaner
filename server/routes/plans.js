@@ -47,6 +47,7 @@ function rowToPlan(row, userId) {
     startDate: row.start_date,
     endDate: row.end_date,
     archived: row.archived === 1,
+    defaultServings: row.default_servings || undefined,
     createdAt: row.created_at,
     isOwner: row.user_id === userId,
     ownerEmail: row.owner_email || null,
@@ -101,7 +102,7 @@ router.get('/', (req, res) => {
 // Create plan
 router.post('/', (req, res) => {
   try {
-    const { name, startDate, endDate, planType } = req.body;
+    const { name, startDate, endDate, planType, defaultServings } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name ist erforderlich' });
@@ -109,8 +110,8 @@ router.post('/', (req, res) => {
 
     const type = planType === 'menu' ? 'menu' : 'weekly';
     const result = db.prepare(
-      'INSERT INTO meal_plans (user_id, name, plan_type, start_date, end_date) VALUES (?, ?, ?, ?, ?)'
-    ).run(req.userId, name, type, startDate || null, endDate || null);
+      'INSERT INTO meal_plans (user_id, name, plan_type, start_date, end_date, default_servings) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(req.userId, name, type, startDate || null, endDate || null, defaultServings || null);
 
     // For menu plans, create 3 default courses
     if (type === 'menu') {
@@ -197,15 +198,16 @@ router.put('/:planId', (req, res) => {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
-  const { name, startDate, endDate, archived } = req.body;
+  const { name, startDate, endDate, archived, defaultServings } = req.body;
 
   db.prepare(
-    'UPDATE meal_plans SET name = ?, start_date = ?, end_date = ?, archived = ? WHERE id = ?'
+    'UPDATE meal_plans SET name = ?, start_date = ?, end_date = ?, archived = ?, default_servings = ? WHERE id = ?'
   ).run(
     name ?? plan.name,
     startDate !== undefined ? startDate : plan.start_date,
     endDate !== undefined ? endDate : plan.end_date,
     archived !== undefined ? (archived ? 1 : 0) : plan.archived,
+    defaultServings !== undefined ? (defaultServings || null) : plan.default_servings,
     plan.id
   );
 

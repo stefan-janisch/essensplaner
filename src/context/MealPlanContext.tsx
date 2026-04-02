@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
-import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo } from '../types/index.js';
+import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo, NutritionProfile } from '../types/index.js';
 
 interface MealPlanContextType {
   state: MealPlanState;
@@ -15,12 +15,15 @@ interface MealPlanContextType {
   setNutritionTargets: (targets: NutritionTargets | null) => Promise<void>;
   mealsPerDay: number;
   setMealsPerDay: (n: number) => Promise<void>;
+  nutritionProfile: NutritionProfile | null;
+  setNutritionProfile: (profile: NutritionProfile | null) => Promise<void>;
 
   // Plan management
   createPlan: (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => Promise<number>;
   selectPlan: (planId: number) => void;
   deletePlan: (planId: number) => Promise<void>;
   renamePlan: (planId: number, name: string) => Promise<void>;
+  updatePlanServings: (planId: number, servings: number) => Promise<void>;
   archivePlan: (planId: number, archived: boolean) => Promise<void>;
   resetMealPlan: () => Promise<void>;
   joinSharedPlan: (token: string) => Promise<number>;
@@ -71,6 +74,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [defaultServings, setDefaultServingsLocal] = useState(2);
   const [nutritionTargets, setNutritionTargetsLocal] = useState<NutritionTargets | null>(null);
   const [mealsPerDay, setMealsPerDayLocal] = useState(3);
+  const [nutritionProfile, setNutritionProfileLocal] = useState<NutritionProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,11 +85,12 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         const [meals, plans, settings] = await Promise.all([
           api.get<Meal[]>('/api/meals'),
           api.get<MealPlan[]>('/api/plans'),
-          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number }>('/api/settings'),
+          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number; nutritionProfile: NutritionProfile | null }>('/api/settings'),
         ]);
         setDefaultServingsLocal(settings.defaultServings);
         setNutritionTargetsLocal(settings.nutritionTargets);
         if (settings.mealsPerDay) setMealsPerDayLocal(settings.mealsPerDay);
+        if (settings.nutritionProfile) setNutritionProfileLocal(settings.nutritionProfile);
 
         // Check URL hash for a specific plan ID
         const hashMatch = window.location.hash.match(/^#(?:planer|menuplan)\/(\d+)/);
@@ -154,6 +159,15 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
+  const setNutritionProfile = useCallback(async (profile: NutritionProfile | null) => {
+    setNutritionProfileLocal(profile);
+    try {
+      await api.put('/api/settings', { nutritionProfile: profile });
+    } catch {
+      console.error('Failed to save nutrition profile');
+    }
+  }, []);
+
   // --- Plan management ---
 
   const createPlan = useCallback(async (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => {
@@ -210,6 +224,14 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     setState(prev => ({
       ...prev,
       plans: prev.plans.map(p => p.id === planId ? { ...p, name: updated.name } : p),
+    }));
+  }, []);
+
+  const updatePlanServings = useCallback(async (planId: number, servings: number) => {
+    await api.put<MealPlan>(`/api/plans/${planId}`, { defaultServings: servings });
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p => p.id === planId ? { ...p, defaultServings: servings } : p),
     }));
   }, []);
 
@@ -437,6 +459,10 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   const addMealToSlot = useCallback((date: string, mealType: MealType, mealId: string) => {
     if (!state.activePlanId) return;
 
+    // Use plan-specific servings if set, otherwise user default
+    const plan = state.plans.find(p => p.id === state.activePlanId);
+    const servings = plan?.defaultServings ?? defaultServings;
+
     // Optimistic: create temporary entry with negative id
     const tempId = -Date.now();
     const newEntry: MealPlanEntry = {
@@ -444,7 +470,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       date,
       mealType,
       mealId,
-      servings: defaultServings,
+      servings,
       enabled: true,
     };
     updateActivePlanEntries(entries => [...entries, newEntry]);
@@ -641,10 +667,13 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         setNutritionTargets,
         mealsPerDay,
         setMealsPerDay,
+        nutritionProfile,
+        setNutritionProfile,
         createPlan,
         selectPlan,
         deletePlan,
         renamePlan,
+        updatePlanServings,
         archivePlan,
         resetMealPlan,
         joinSharedPlan,

@@ -12,10 +12,17 @@ function formatDateDE(dateStr: string): string {
 }
 
 export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) => {
-  const { activePlan, defaultServings, setDefaultServings } = useMealPlan();
+  const { activePlan, defaultServings, updatePlanServings } = useMealPlan();
   const isMobile = useIsMobile();
 
   if (!activePlan) return null;
+
+  const planServings = activePlan.defaultServings ?? defaultServings;
+
+  const handleServingsChange = (value: number) => {
+    const s = Math.max(1, value);
+    updatePlanServings(activePlan.id, s);
+  };
 
   if (isMobile) {
     return (
@@ -30,6 +37,17 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
               {formatDateDE(activePlan.startDate)} — {formatDateDE(activePlan.endDate)}
             </span>
           )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+          <input
+            className="input"
+            type="number"
+            min="1"
+            value={planServings}
+            onChange={(e) => handleServingsChange(parseInt(e.target.value) || 1)}
+            style={{ width: '40px', textAlign: 'center', padding: '3px 4px', fontSize: '13px' }}
+          />
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>P</span>
         </div>
       </div>
     );
@@ -64,8 +82,8 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
           className="input"
           type="number"
           min="1"
-          value={defaultServings}
-          onChange={(e) => setDefaultServings(Math.max(1, parseInt(e.target.value) || 1))}
+          value={planServings}
+          onChange={(e) => handleServingsChange(parseInt(e.target.value) || 1)}
           style={{ width: '56px', textAlign: 'center', padding: '4px 8px' }}
         />
       </div>
