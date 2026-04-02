@@ -185,7 +185,7 @@ function MobileExtrasSection() {
 export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) => {
   const { activePlan, allMealsForActivePlan } = useMealPlan();
   const carouselRef = useRef<HTMLDivElement>(null);
-  const [activeDayIndex, setActiveDayIndex] = useState(0);
+  const hasScrolledToToday = useRef(false);
 
   const dates = activePlan?.startDate && activePlan?.endDate
     ? eachDayOfInterval({
@@ -193,6 +193,21 @@ export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) =>
         end: parseISO(activePlan.endDate),
       }).map(d => format(d, 'yyyy-MM-dd'))
     : [];
+
+  // Find today's index (or 0 if not in range)
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todayIndex = Math.max(0, dates.indexOf(todayStr));
+
+  const [activeDayIndex, setActiveDayIndex] = useState(todayIndex);
+
+  // Scroll to today on first mount
+  useEffect(() => {
+    if (hasScrolledToToday.current || !carouselRef.current || dates.length === 0) return;
+    hasScrolledToToday.current = true;
+    if (todayIndex > 0) {
+      carouselRef.current.scrollTo({ left: todayIndex * carouselRef.current.clientWidth, behavior: 'instant' });
+    }
+  }, [dates.length, todayIndex]);
 
   const handleScroll = useCallback(() => {
     const el = carouselRef.current;

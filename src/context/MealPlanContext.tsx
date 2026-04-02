@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
-import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType } from '../types/index.js';
+import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo } from '../types/index.js';
 
 interface MealPlanContextType {
   state: MealPlanState;
@@ -11,6 +11,10 @@ interface MealPlanContextType {
   error: string | null;
   defaultServings: number;
   setDefaultServings: (servings: number) => void;
+  nutritionTargets: NutritionTargets | null;
+  setNutritionTargets: (targets: NutritionTargets | null) => Promise<void>;
+  mealsPerDay: number;
+  setMealsPerDay: (n: number) => Promise<void>;
 
   // Plan management
   createPlan: (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => Promise<number>;
@@ -65,6 +69,8 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     meals: [],
   });
   const [defaultServings, setDefaultServingsLocal] = useState(2);
+  const [nutritionTargets, setNutritionTargetsLocal] = useState<NutritionTargets | null>(null);
+  const [mealsPerDay, setMealsPerDayLocal] = useState(3);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,9 +81,11 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         const [meals, plans, settings] = await Promise.all([
           api.get<Meal[]>('/api/meals'),
           api.get<MealPlan[]>('/api/plans'),
-          api.get<{ defaultServings: number }>('/api/settings'),
+          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number }>('/api/settings'),
         ]);
         setDefaultServingsLocal(settings.defaultServings);
+        setNutritionTargetsLocal(settings.nutritionTargets);
+        if (settings.mealsPerDay) setMealsPerDayLocal(settings.mealsPerDay);
 
         // Check URL hash for a specific plan ID
         const hashMatch = window.location.hash.match(/^#(?:planer|menuplan)\/(\d+)/);
@@ -125,6 +133,24 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       await api.put('/api/settings', { defaultServings: servings });
     } catch {
       console.error('Failed to save default servings');
+    }
+  }, []);
+
+  const setNutritionTargets = useCallback(async (targets: NutritionTargets | null) => {
+    setNutritionTargetsLocal(targets);
+    try {
+      await api.put('/api/settings', { nutritionTargets: targets });
+    } catch {
+      console.error('Failed to save nutrition targets');
+    }
+  }, []);
+
+  const setMealsPerDay = useCallback(async (n: number) => {
+    setMealsPerDayLocal(n);
+    try {
+      await api.put('/api/settings', { mealsPerDay: n });
+    } catch {
+      console.error('Failed to save meals per day');
     }
   }, []);
 
@@ -269,6 +295,22 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // --- Meal CRUD ---
 
+  // Fire-and-forget nutrition estimation, updates meal in state when done
+  const estimateNutritionInBackground = useCallback((mealId: string) => {
+    api.post<{ nutritionPerServing: NutritionInfo; tagsUpdated: string[] | null }>('/api/estimate-nutrition', { mealId })
+      .then(result => {
+        setState(prev => ({
+          ...prev,
+          meals: prev.meals.map(m => m.id === mealId ? {
+            ...m,
+            nutritionPerServing: result.nutritionPerServing,
+            ...(result.tagsUpdated ? { tags: result.tagsUpdated } : {}),
+          } : m),
+        }));
+      })
+      .catch(() => { /* silent — user can trigger manually */ });
+  }, []);
+
   const addMeal = useCallback(async (meal: Omit<Meal, 'id'>): Promise<Meal | null> => {
     try {
       const newMeal = await api.post<Meal>('/api/meals', meal);
@@ -276,12 +318,16 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         ...prev,
         meals: [...prev.meals, newMeal],
       }));
+      // Auto-estimate nutrition if meal has ingredients
+      if (newMeal.ingredients?.length > 0) {
+        estimateNutritionInBackground(newMeal.id);
+      }
       return newMeal;
     } catch (err) {
       console.error('Add meal failed:', err);
       return null;
     }
-  }, []);
+  }, [estimateNutritionInBackground]);
 
   const importMeals = useCallback(async (recipes: Omit<Meal, 'id'>[]): Promise<{ imported: Meal[]; skipped: string[] }> => {
     const result = await api.post<{ imported: Meal[]; skipped: string[] }>('/api/meals/import', { recipes });
@@ -296,6 +342,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const updateMeal = useCallback(async (mealId: string, updatedMeal: Omit<Meal, 'id'>) => {
     const prev = state.meals;
+    const hadIngredientChange = updatedMeal.ingredients !== undefined;
     // Optimistic update — merge with existing meal, stripping undefined values
     // to preserve fields not in the form (e.g. photoUrl)
     const defined = Object.fromEntries(
@@ -307,10 +354,14 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }));
     try {
       await api.put<Meal>(`/api/meals/${mealId}`, updatedMeal);
+      // Re-estimate nutrition if ingredients changed
+      if (hadIngredientChange && updatedMeal.ingredients && updatedMeal.ingredients.length > 0) {
+        estimateNutritionInBackground(mealId);
+      }
     } catch {
       setState(s => ({ ...s, meals: prev }));
     }
-  }, [state.meals]);
+  }, [state.meals, estimateNutritionInBackground]);
 
   const deleteMeal = useCallback(async (mealId: string) => {
     await api.delete(`/api/meals/${mealId}`);
@@ -586,6 +637,10 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         error,
         defaultServings,
         setDefaultServings,
+        nutritionTargets,
+        setNutritionTargets,
+        mealsPerDay,
+        setMealsPerDay,
         createPlan,
         selectPlan,
         deletePlan,

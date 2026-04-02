@@ -46,7 +46,8 @@ router.post('/register', authLimiter, async (req, res) => {
     res.status(201).json({
       id: result.lastInsertRowid,
       email: email.toLowerCase(),
-      defaultServings: 2
+      defaultServings: 2,
+      isAdmin: false
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -77,7 +78,8 @@ router.post('/login', authLimiter, async (req, res) => {
     res.json({
       id: user.id,
       email: user.email,
-      defaultServings: user.default_servings
+      defaultServings: user.default_servings,
+      isAdmin: !!user.is_admin
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -96,14 +98,15 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const user = db.prepare('SELECT id, email, default_servings FROM users WHERE id = ?').get(req.userId);
+  const user = db.prepare('SELECT id, email, default_servings, is_admin FROM users WHERE id = ?').get(req.userId);
   if (!user) {
     return res.status(404).json({ error: 'Benutzer nicht gefunden' });
   }
   res.json({
     id: user.id,
     email: user.email,
-    defaultServings: user.default_servings
+    defaultServings: user.default_servings,
+    isAdmin: !!user.is_admin
   });
 });
 

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { useMealPlan } from '../context/MealPlanContext';
 import { MealCellItem, ExtraItemRow } from './MealPlanTable';
-import type { MenuCourse } from '../types/index.js';
+import { MenuAddContext } from './PlanViewLayout';
+import { useIsMobile } from '../hooks/useIsMobile';
+import type { MenuCourse, MealType } from '../types/index.js';
 
 type MenuColumnType = 'food' | 'drinks';
 
@@ -11,6 +13,8 @@ const MenuExtrasCell: React.FC<{ courseId: number; columnType: MenuColumnType }>
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [unit, setUnit] = useState('Stück');
+  const menuAddRequest = useContext(MenuAddContext);
+  const isMobile = useIsMobile();
 
   const courseDate = `course_${courseId}`;
 
@@ -60,6 +64,16 @@ const MenuExtrasCell: React.FC<{ courseId: number; columnType: MenuColumnType }>
       {extras.map(item => (
         <ExtraItemRow key={item.id} item={item} />
       ))}
+
+      {isMobile && menuAddRequest && (
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => menuAddRequest(courseDate, columnType as MealType)}
+          style={{ width: '100%', marginTop: '6px', fontSize: '12px', color: 'var(--accent)' }}
+        >
+          + Rezept
+        </button>
+      )}
 
       <div style={{ display: 'flex', gap: '3px', marginTop: '6px' }}>
         <input

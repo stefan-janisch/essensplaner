@@ -15,5 +15,6 @@ export function rowToMeal(row) {
     recipeText: row.recipe_text,
     prepTime: row.prep_time,
     totalTime: row.total_time,
+    nutritionPerServing: row.nutrition_per_serving ? JSON.parse(row.nutrition_per_serving) : undefined,
   };
 }

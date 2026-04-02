@@ -203,8 +203,10 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
       {tapMode && (
         <div className="tap-mode-banner">
           <span>
-            Rezept wählen für <strong>{MEAL_TYPE_LABELS[tapMode.mealType] || tapMode.mealType}</strong>,{' '}
-            {format(parseISO(tapMode.date), 'EEEE dd.MM.', { locale: de })}
+            Rezept wählen für <strong>{MEAL_TYPE_LABELS[tapMode.mealType] || tapMode.mealType}</strong>
+            {!tapMode.date.startsWith('course_') && (
+              <>, {format(parseISO(tapMode.date), 'EEEE dd.MM.', { locale: de })}</>
+            )}
           </span>
           <button className="btn btn-ghost btn-sm" onClick={onCancelTap}>Abbrechen</button>
         </div>
@@ -242,6 +244,8 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         style={{ width: '100%', marginBottom: '8px' }}
       />
 
+      {/* Scrollable area: filters + recipe cards */}
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       {/* Collapsible filters */}
       <div style={{ marginBottom: '10px' }}>
         <button
@@ -365,7 +369,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
       </div>
 
       {/* Recipe cards */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div>
         {displayMeals.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--text)', padding: '20px' }}>
             {randomIds ? 'Keine Rezepte vorhanden' : smartMode ? 'Keine passenden Rezepte gefunden' : searchQuery.trim() || activeFilterCount > 0 ? 'Keine Treffer' : 'Keine Rezepte vorhanden'}
@@ -419,6 +423,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
           </div>
         )}
       </div>
+      </div>{/* end scrollable area */}
 
       {editingMeal && (
         <EditRecipeModal meal={editingMeal} onClose={() => setEditingMeal(null)} />

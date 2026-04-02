@@ -3,8 +3,25 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   default_servings INTEGER NOT NULL DEFAULT 2,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  nutrition_targets TEXT,
+  meals_per_day INTEGER NOT NULL DEFAULT 3,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_id ON ai_usage(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at);
 
 CREATE TABLE IF NOT EXISTS meals (
   id TEXT PRIMARY KEY,
@@ -22,6 +39,7 @@ CREATE TABLE IF NOT EXISTS meals (
   recipe_text TEXT,
   prep_time INTEGER,
   total_time INTEGER,
+  nutrition_per_serving TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_meals_user_id ON meals(user_id);

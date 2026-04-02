@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Build:** `npm run build` (runs `tsc -b && vite build`)
 - **Lint:** `npm run lint`
 - **Production start:** `npm start` (serves built client from `dist/`)
+- **Restart production server:** `./restart.sh` (builds, kills old server, starts new one, verifies health)
+- **Start dev server:** `./dev.sh` (kills old processes, runs `npm run dev`)
 
 No test framework is configured.
 

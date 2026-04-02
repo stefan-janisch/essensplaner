@@ -9,6 +9,7 @@ import type { SortBy, RatingComparator } from '../utils/mealFilters';
 import type { Meal } from '../types/index.js';
 import type { RecipeFormData } from './RecipeForm';
 import { RecipeChat } from './RecipeChat';
+import { NutritionTable } from './NutritionTable';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -337,6 +338,14 @@ export function RecipeDetailModal({
             </div>
           )}
         </div>
+
+        <NutritionTable
+          meal={meal}
+          onTagsUpdated={(tags) => {
+            const { id: _, ...rest } = meal;
+            updateMeal(meal.id, { ...rest, tags });
+          }}
+        />
 
         <RecipeChat meal={meal} />
       </div>

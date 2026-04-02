@@ -1,3 +1,27 @@
+export type NutritionInfo = {
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+}
+
+export type NutritionTargets = {
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+}
+
+export const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
+  kcal: 2000,
+  protein: 50,
+  carbs: 260,
+  fat: 65,
+  fiber: 30,
+};
+
 export type Ingredient = {
   name: string;
   amount: number;
@@ -20,6 +44,7 @@ export type Meal = {
   recipeText?: string;
   prepTime?: number;
   totalTime?: number;
+  nutritionPerServing?: NutritionInfo;
 }
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks' | 'drinks' | 'misc' | 'food';
@@ -85,4 +110,7 @@ export type User = {
   id: number;
   email: string;
   defaultServings: number;
+  isAdmin?: boolean;
+  nutritionTargets?: NutritionTargets;
+  mealsPerDay?: number;
 }

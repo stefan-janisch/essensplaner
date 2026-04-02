@@ -196,4 +196,55 @@ if (version < 8) {
   console.log('✓ Migration v8 complete');
 }
 
+if (version < 9) {
+  console.log('Running migration v9: admin flag + AI usage tracking...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('is_admin')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+  }
+  // Set admin for janisch.stef@gmail.com
+  db.prepare("UPDATE users SET is_admin = 1 WHERE email = ?").run('janisch.stef@gmail.com');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL,
+      model TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_user_id ON ai_usage(user_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at);
+  `);
+  db.pragma('user_version = 9');
+  console.log('✓ Migration v9 complete');
+}
+
+if (version < 10) {
+  console.log('Running migration v10: nutrition estimation cache + user targets...');
+  const mealCols = db.prepare("PRAGMA table_info(meals)").all().map(c => c.name);
+  if (!mealCols.includes('nutrition_per_serving')) {
+    db.exec('ALTER TABLE meals ADD COLUMN nutrition_per_serving TEXT');
+  }
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('nutrition_targets')) {
+    db.exec('ALTER TABLE users ADD COLUMN nutrition_targets TEXT');
+  }
+  db.pragma('user_version = 10');
+  console.log('✓ Migration v10 complete');
+}
+
+if (version < 11) {
+  console.log('Running migration v11: meals per day setting...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('meals_per_day')) {
+    db.exec('ALTER TABLE users ADD COLUMN meals_per_day INTEGER NOT NULL DEFAULT 3');
+  }
+  db.pragma('user_version = 11');
+  console.log('✓ Migration v11 complete');
+}
+
 export default db;

@@ -8,13 +8,15 @@ import { MenuPlanTable } from './components/MenuPlanTable';
 import { MealPlanOverview } from './components/MealPlanOverview';
 import { RecipeManagement } from './components/RecipeManagement';
 import { PlanViewLayout } from './components/PlanViewLayout';
+import { AdminPanel } from './components/AdminPanel';
+import { UserSettings } from './components/UserSettings';
 import type { PlanType } from './types/index.js';
 import './App.css';
 
-type AppView = 'overview' | 'planner' | 'recipes' | 'menuplan';
+type AppView = 'overview' | 'planner' | 'recipes' | 'menuplan' | 'admin' | 'settings';
 
 function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNavigate: (view: AppView) => void }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   return (
     <header className="app-header">
@@ -38,10 +40,24 @@ function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNaviga
         >
           Rezepte
         </button>
+        {user?.isAdmin && (
+          <button
+            className={`btn btn-ghost btn-sm ${currentView === 'admin' ? 'btn-nav-active' : ''}`}
+            onClick={() => onNavigate('admin')}
+          >
+            Admin
+          </button>
+        )}
       </div>
       <div className="app-header-user">
         <span>{user?.email}</span>
-        <button className="btn btn-ghost btn-sm" onClick={logout}>Abmelden</button>
+        <button
+          className={`btn btn-ghost btn-sm ${currentView === 'settings' ? 'btn-nav-active' : ''}`}
+          onClick={() => onNavigate('settings')}
+          title="Einstellungen"
+        >
+          👤
+        </button>
       </div>
     </header>
   );
@@ -110,6 +126,8 @@ function useShareJoin(onJoined: () => void) {
 
 function parseHash(hash: string): { view: AppView; planId?: number } {
   if (hash === '#rezepte') return { view: 'recipes' };
+  if (hash === '#admin') return { view: 'admin' };
+  if (hash === '#einstellungen') return { view: 'settings' };
   if (hash.startsWith('#menuplan')) {
     const id = parseInt(hash.split('/')[1]);
     return { view: 'menuplan', planId: id || undefined };
@@ -128,6 +146,8 @@ function AuthenticatedAppInner() {
   const setView = useCallback((v: AppView, planId?: number) => {
     setViewState(v);
     if (v === 'recipes') window.location.hash = '#rezepte';
+    else if (v === 'settings') window.location.hash = '#einstellungen';
+    else if (v === 'admin') window.location.hash = '#admin';
     else if (v === 'menuplan' && planId) window.location.hash = `#menuplan/${planId}`;
     else if (v === 'menuplan') window.location.hash = '#menuplan';
     else if (v === 'planner' && planId) window.location.hash = `#planer/${planId}`;
@@ -174,10 +194,14 @@ function AuthenticatedAppInner() {
       )}
       {view === 'overview' ? (
         <MealPlanOverview onOpenPlan={openPlan} />
+      ) : view === 'settings' ? (
+        <UserSettings />
+      ) : view === 'admin' ? (
+        <AdminPanel />
       ) : view === 'recipes' ? (
         <RecipeManagement />
       ) : view === 'menuplan' ? (
-        <PlanViewLayout onBack={() => setView('overview')}><MenuPlanTable /></PlanViewLayout>
+        <PlanViewLayout onBack={() => setView('overview')} planType="menu"><MenuPlanTable /></PlanViewLayout>
       ) : (
         <PlanViewLayout onBack={() => setView('overview')}><MealPlanTable /></PlanViewLayout>
       )}

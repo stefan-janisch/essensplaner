@@ -9,13 +9,18 @@ import { ShoppingList } from './ShoppingList';
 import { MobileDayView } from './MobileDayView';
 import { MobileBottomTabs, type MobileTab } from './MobileBottomTabs';
 import type { Meal, MealType } from '../types/index.js';
+import React from 'react';
+
+// Context to pass tap-to-add handler down to MenuPlanTable cells
+export const MenuAddContext = React.createContext<((date: string, mealType: MealType) => void) | null>(null);
 
 interface PlanViewLayoutProps {
   onBack: () => void;
   children: ReactNode;
+  planType?: 'weekly' | 'menu';
 }
 
-export function PlanViewLayout({ onBack, children }: PlanViewLayoutProps) {
+export function PlanViewLayout({ onBack, children, planType = 'weekly' }: PlanViewLayoutProps) {
   const { addMealToSlot, moveEntry } = useMealPlan();
   const isMobile = useIsMobile();
   const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
@@ -66,6 +71,35 @@ export function PlanViewLayout({ onBack, children }: PlanViewLayoutProps) {
   };
 
   if (isMobile) {
+    // Menüpläne: children direkt rendern + tap-to-add für Rezepte
+    if (planType === 'menu') {
+      return (
+        <div className="plan-view-mobile">
+          <DateRangeSelector onBack={onBack} />
+          <div style={{ padding: '0 12px 80px' }}>
+            {activeTab === 'plan' && (
+              <MenuAddContext.Provider value={handleAddRequest}>
+                {children}
+              </MenuAddContext.Provider>
+            )}
+            {activeTab === 'shopping' && <ShoppingList />}
+          </div>
+
+          {addTarget && (
+            <div className="mobile-recipe-overlay">
+              <MealHistory
+                tapMode={addTarget}
+                onTapSelect={handleTapSelect}
+                onCancelTap={handleCancelAdd}
+              />
+            </div>
+          )}
+
+          <MobileBottomTabs activeTab={activeTab} onChange={setActiveTab} />
+        </div>
+      );
+    }
+
     return (
       <div className="plan-view-mobile">
         <DateRangeSelector onBack={onBack} />

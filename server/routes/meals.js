@@ -134,8 +134,11 @@ router.put('/:id', (req, res) => {
 
     const { name, ingredients, shoppingIngredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
 
+    // Invalidate nutrition cache when ingredients change
+    const nutritionValue = ingredients ? null : meal.nutrition_per_serving;
+
     db.prepare(`
-      UPDATE meals SET name = ?, ingredients = ?, shopping_ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?
+      UPDATE meals SET name = ?, ingredients = ?, shopping_ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?, nutrition_per_serving = ?
       WHERE id = ? AND user_id = ?
     `).run(
       name ?? meal.name,
@@ -151,6 +154,7 @@ router.put('/:id', (req, res) => {
       recipeText !== undefined ? recipeText : meal.recipe_text,
       prepTime !== undefined ? (prepTime || null) : meal.prep_time,
       totalTime !== undefined ? (totalTime || null) : meal.total_time,
+      nutritionValue,
       req.params.id,
       req.userId
     );
