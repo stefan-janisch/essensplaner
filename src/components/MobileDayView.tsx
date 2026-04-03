@@ -53,7 +53,8 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
               type="number"
               min="1"
               value={editServings}
-              onChange={(e) => setEditServings(parseInt(e.target.value) || 1)}
+              onChange={(e) => setEditServings(parseInt(e.target.value) || 0)}
+              onBlur={() => { if (!editServings) setEditServings(1); }}
               style={{ width: '44px', padding: '2px 4px', fontSize: '12px' }}
             />
             <button className="btn btn-primary btn-sm" onClick={handleSaveServings} style={{ padding: '2px 6px' }}>OK</button>
@@ -184,7 +185,7 @@ function MobileExtrasSection() {
 }
 
 export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) => {
-  const { activePlan, allMealsForActivePlan } = useMealPlan();
+  const { activePlan, allMealsForActivePlan, toggleSlotDisabled } = useMealPlan();
   const carouselRef = useRef<HTMLDivElement>(null);
   const hasScrolledToToday = useRef(false);
 
@@ -266,9 +267,12 @@ export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) =>
 
               {MEAL_TYPES.map(({ type, label }) => {
                 const mealEntries = entries.filter(e => e.date === date && e.mealType === type);
+                const isSlotDisabled = (activePlan?.disabledSlots || []).some(
+                  s => s.date === date && s.mealType === type
+                );
 
                 return (
-                  <div key={type} className="mobile-meal-section">
+                  <div key={type} className="mobile-meal-section" style={{ opacity: mealEntries.length === 0 && isSlotDisabled ? 0.4 : undefined }}>
                     <div className="mobile-meal-section-header">
                       <span>{label}</span>
                       <button
@@ -281,7 +285,14 @@ export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) =>
                     </div>
                     <div className="mobile-meal-section-body">
                       {mealEntries.length === 0 ? (
-                        <div className="mobile-empty-slot">—</div>
+                        <div
+                          className="mobile-empty-slot"
+                          onClick={() => toggleSlotDisabled(date, type)}
+                          style={{ cursor: 'pointer' }}
+                          title={isSlotDisabled ? 'Slot aktivieren' : 'Slot deaktivieren (z.B. auswärts essen)'}
+                        >
+                          {isSlotDisabled ? '✗' : '—'}
+                        </div>
                       ) : (
                         mealEntries.map(entry => {
                           const meal = allMealsForActivePlan.find(m => m.id === entry.mealId);

@@ -61,6 +61,12 @@
 
 - [x] AI-Kosten-Tracking in DB: Pro AI Endpoint und User werden die Kosten und Anzahl der Aufrufe getrackt -> Admin-Account hat Admin-Tab mit eigenem Sidebar-Menü. Unter API-Kosten kann er eine detaillierte Aufstellung einsehen.
 
-- [ ] Auf aktuelle Modelle umsteigen (GPT 5.2 und GPT 5 mini).
+- [x] Auf aktuelle Modelle umsteigen (GPT 5.2 und GPT 5 mini).
 
 - [x] Im Meal Plan: Spalte hinzufügen, die Grün/Gelb/Rot-Bewertung für Nährstoffe für diesen Tag anzeigt. Beim Hovern wird eine detaillierte Aufschlüsselung der Nährstoffe angezeigt. Überlege dir, wie wir das gut in die Mobile-Version integrieren können. Vielleicht als klickbares Popup?
+
+- [x] Bild ändern funktioniert derzeit nur mit Bild entfernen, speichern, neues Bild hochladen, speichern. Es sollte möglich sein, direkt ein neues Bild hochzuladen und damit das alte zu ersetzen.
+
+- [x] Bei einigen Inputs wird automatisch 1 gesetzt, wenn man die Zahl löscht. Das verhindert jedoch die Neueingabe einer Zahl, da beim Löschen immer sofort 1 kommt.
+
+- [ ] Gesamtbewertung Nährwerrte Rezepte: Sollte auf Idealportion bezogen sein.

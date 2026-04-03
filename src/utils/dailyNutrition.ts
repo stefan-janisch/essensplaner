@@ -1,45 +1,16 @@
 import type { MealPlanEntry, Meal, NutritionInfo, NutritionTargets } from '../types/index.js';
+import { NUTRITION_KEYS, getNutrientStatuses, getOverallColor } from './nutritionColors';
+import type { NutrientStatus, NutrientColor } from './nutritionColors';
 
-const NUTRITION_KEYS: (keyof NutritionInfo)[] = ['kcal', 'protein', 'carbs', 'fat', 'fiber'];
-const MORE_IS_BETTER = new Set<keyof NutritionInfo>(['protein', 'fiber']);
-
-export type NutrientStatus = {
-  key: keyof NutritionInfo;
-  label: string;
-  actual: number;
-  target: number;
-  percent: number;
-  color: 'green' | 'yellow' | 'red';
-};
+export type { NutrientStatus };
 
 export type DayNutritionResult = {
   totals: NutritionInfo;
   details: NutrientStatus[];
-  overallColor: 'green' | 'yellow' | 'red' | 'gray';
+  overallColor: NutrientColor | 'gray';
   filledMeals: number;
-  totalSlots: number; // breakfast + lunch + dinner
+  totalSlots: number;
 };
-
-const LABELS: Record<keyof NutritionInfo, string> = {
-  kcal: 'Kalorien',
-  protein: 'Protein',
-  carbs: 'Kohlenh.',
-  fat: 'Fett',
-  fiber: 'Ballast.',
-};
-
-function getNutrientColor(percent: number, key: keyof NutritionInfo): 'green' | 'yellow' | 'red' {
-  if (MORE_IS_BETTER.has(key)) {
-    if (percent < 50) return 'red';
-    if (percent < 80) return 'yellow';
-    return 'green'; // >=80% is good, more is fine
-  }
-  if (percent < 50 || percent > 150) return 'red';
-  if (percent < 80 || percent > 120) return 'yellow';
-  return 'green';
-}
-
-const COLOR_PRIORITY: Record<string, number> = { red: 0, yellow: 1, green: 2 };
 
 export function calculateDailyNutrition(
   date: string,
@@ -53,11 +24,8 @@ export function calculateDailyNutrition(
   const mainEntries = entries.filter(e => e.date === date && mainMealTypes.has(e.mealType));
   const filledMeals = new Set(mainEntries.map(e => e.mealType)).size;
 
-  // Sum nutrition per person:
-  // entry.servings × nutritionPerServing = total for this entry
-  // divided by planDefaultServings = per person
   const perPerson = Math.max(1, planDefaultServings);
-  const totals: NutritionInfo = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  const totals: NutritionInfo = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0 };
   let hasAnyNutrition = false;
 
   for (const entry of dayEntries) {
@@ -70,32 +38,11 @@ export function calculateDailyNutrition(
   }
 
   if (!hasAnyNutrition) {
-    return {
-      totals,
-      details: [],
-      overallColor: 'gray',
-      filledMeals,
-      totalSlots: 3,
-    };
+    return { totals, details: [], overallColor: 'gray', filledMeals, totalSlots: 3 };
   }
 
-  const details: NutrientStatus[] = NUTRITION_KEYS.map(key => {
-    const target = targets[key] || 1;
-    const actual = totals[key];
-    const percent = Math.round((actual / target) * 100);
-    return {
-      key,
-      label: LABELS[key],
-      actual,
-      target,
-      percent,
-      color: getNutrientColor(percent, key),
-    };
-  });
-
-  const overallColor = details.reduce<'green' | 'yellow' | 'red'>((worst, d) => {
-    return COLOR_PRIORITY[d.color] < COLOR_PRIORITY[worst] ? d.color : worst;
-  }, 'green');
+  const details = getNutrientStatuses(totals, targets);
+  const overallColor = getOverallColor(details);
 
   return { totals, details, overallColor, filledMeals, totalSlots: 3 };
 }

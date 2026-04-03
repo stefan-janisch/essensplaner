@@ -122,6 +122,15 @@ CREATE TABLE IF NOT EXISTS plan_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_plan_shares_token ON plan_shares(token);
 
+CREATE TABLE IF NOT EXISTS disabled_slots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner')),
+  UNIQUE(plan_id, date, meal_type)
+);
+CREATE INDEX IF NOT EXISTS idx_disabled_slots_plan ON disabled_slots(plan_id);
+
 CREATE TABLE IF NOT EXISTS ingredient_conversions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ingredient_name TEXT NOT NULL,

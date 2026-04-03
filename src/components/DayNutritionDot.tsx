@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useMealPlan } from '../context/MealPlanContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { calculateDailyNutrition } from '../utils/dailyNutrition';
+import { getDayTargets } from '../utils/nutritionCalculator';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import { ModalPortal } from './Modal';
 
@@ -80,13 +81,17 @@ function DesktopTooltip({ result, dotRef, onClose }: {
 }
 
 export function DayNutritionDot({ date }: { date: string }) {
-  const { activePlan, allMealsForActivePlan, nutritionTargets, defaultServings } = useMealPlan();
+  const { activePlan, allMealsForActivePlan, nutritionTargets, defaultServings, nutritionProfile } = useMealPlan();
   const isMobile = useIsMobile();
   const [showPopup, setShowPopup] = useState(false);
   const dotRef = useRef<HTMLSpanElement>(null);
 
   const entries = activePlan?.entries || [];
-  const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
+  // Use day-specific targets from nutrition profile if available, otherwise flat targets
+  const targets = useMemo(() => {
+    if (nutritionProfile) return getDayTargets(nutritionProfile, date);
+    return nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
+  }, [nutritionProfile, nutritionTargets, date]);
   const planServings = activePlan?.defaultServings ?? defaultServings;
   const result = calculateDailyNutrition(date, entries, allMealsForActivePlan, targets, planServings);
 

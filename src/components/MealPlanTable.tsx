@@ -106,7 +106,8 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
             type="number"
             min="1"
             value={editServings}
-            onChange={(e) => setEditServings(parseInt(e.target.value) || 1)}
+            onChange={(e) => setEditServings(parseInt(e.target.value) || 0)}
+            onBlur={() => { if (!editServings) setEditServings(1); }}
             style={{ width: '50px', padding: '3px 6px', fontSize: '12px' }}
             onClick={(e) => e.stopPropagation()}
           />
@@ -152,10 +153,14 @@ interface MealCellProps {
 }
 
 const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
-  const { allMealsForActivePlan, activePlan } = useMealPlan();
+  const { allMealsForActivePlan, activePlan, toggleSlotDisabled } = useMealPlan();
 
   const entries = (activePlan?.entries || []).filter(
     e => e.date === date && e.mealType === mealType
+  );
+
+  const isSlotDisabled = (activePlan?.disabledSlots || []).some(
+    s => s.date === date && s.mealType === mealType
   );
 
   const { setNodeRef, isOver } = useDroppable({
@@ -171,11 +176,16 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
         backgroundColor: isOver ? 'var(--surface-drop)' : undefined,
         position: 'relative',
         verticalAlign: 'top',
+        opacity: entries.length === 0 && isSlotDisabled ? 0.4 : undefined,
       }}
     >
       {entries.length === 0 ? (
-        <div style={{ color: 'var(--text)', opacity: 0.3, textAlign: 'center', padding: '8px', fontSize: '13px' }}>
-          —
+        <div
+          style={{ color: 'var(--text)', opacity: isSlotDisabled ? 1 : 0.3, textAlign: 'center', padding: '8px', fontSize: '13px', cursor: 'pointer' }}
+          onClick={() => toggleSlotDisabled(date, mealType)}
+          title={isSlotDisabled ? 'Slot aktivieren' : 'Slot deaktivieren (z.B. auswärts essen)'}
+        >
+          {isSlotDisabled ? '✗' : '—'}
         </div>
       ) : (
         entries.map(entry => {

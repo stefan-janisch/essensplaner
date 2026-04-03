@@ -143,6 +143,28 @@ export function calculateDayAdjustment(base: CalculatedNutrition, dayType: DayTy
   }
 }
 
+const WEEKDAY_KEYS: (keyof WeekDayTypes)[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/**
+ * Get day-adjusted NutritionTargets for a specific date.
+ * Maps the date's weekday to the profile's weekDayTypes, then adjusts macros.
+ */
+export function getDayTargets(profile: NutritionProfile, date: string): NutritionTargets {
+  const calc = calculateNutrition(profile);
+  const dayOfWeek = new Date(date).getDay(); // 0=Sun, 1=Mon, ...
+  const dayKey = WEEKDAY_KEYS[dayOfWeek];
+  const dayType = profile.weekDayTypes[dayKey];
+  const adj = calculateDayAdjustment(calc, dayType);
+  return {
+    kcal: adj.targetKcal,
+    protein: adj.proteinG,
+    carbs: adj.carbsG,
+    fat: adj.fatG,
+    fiber: calc.fiberG,
+    sugar: 25,
+  };
+}
+
 export function toNutritionTargets(calc: CalculatedNutrition): NutritionTargets {
   return {
     kcal: calc.targetKcal,
@@ -150,5 +172,6 @@ export function toNutritionTargets(calc: CalculatedNutrition): NutritionTargets 
     carbs: calc.carbsG,
     fat: calc.fatG,
     fiber: calc.fiberG,
+    sugar: 25, // WHO recommendation — fixed limit, not calculated from body stats
   };
 }

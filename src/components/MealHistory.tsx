@@ -48,7 +48,7 @@ function computeAdditionalIngredients(
   return result;
 }
 
-function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit: () => void; onSetRating: (r: number) => void }) {
+function DraggableRecipeCard({ meal, onEdit, onSetRating, hideNutrition }: { meal: Meal; onEdit: () => void; onSetRating: (r: number) => void; hideNutrition?: boolean }) {
   const { toggleMealStar, deleteMeal } = useMealPlan();
   const [showRecipe, setShowRecipe] = useState(false);
 
@@ -78,6 +78,7 @@ function DraggableRecipeCard({ meal, onEdit, onSetRating }: { meal: Meal; onEdit
         onToggleStar={() => toggleMealStar(meal.id)}
         onSetRating={onSetRating}
         dragHandleProps={{ ...listeners, ...attributes }}
+        hideNutrition={hideNutrition}
       />
       {showRecipe && (
         <RecipeDetailModal
@@ -122,6 +123,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const [showFilters, setShowFilters] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showNutritionIndicators, setShowNutritionIndicators] = useState(true);
   const [smartMode, setSmartMode] = useState(false);
   const [randomIds, setRandomIds] = useState<string[] | null>(null);
 
@@ -267,6 +269,9 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
               <button className={`pill ${starFilter === 'starred' ? 'pill-active' : ''}`} onClick={() => setStarFilter('starred')} style={{ fontSize: '12px', padding: '2px 8px' }}>
                 ⭐ Favoriten
               </button>
+              <button className={`pill ${showNutritionIndicators ? 'pill-active' : ''}`} onClick={() => setShowNutritionIndicators(!showNutritionIndicators)} style={{ fontSize: '12px', padding: '2px 8px' }} title="Nährwert-Ampel">
+                🚦
+              </button>
             </div>
 
             {categories.length > 0 && (
@@ -303,6 +308,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                 <option value="kcal">Kalorien ↑</option>
                 <option value="protein">Protein ↓</option>
                 <option value="fiber">Ballaststoffe ↓</option>
+                <option value="sugar">Zug. Zucker ↑</option>
               </select>
             </div>
 
@@ -408,6 +414,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                         onDelete={() => { if (confirm(`Rezept "${meal.name}" wirklich löschen?`)) deleteMeal(meal.id); }}
                         onToggleStar={() => toggleMealStar(meal.id)}
                         onSetRating={(r) => handleSetRating(meal.id, r)}
+                        hideNutrition={!showNutritionIndicators}
                       />
                     </div>
                   ) : (
@@ -415,6 +422,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                       meal={meal}
                       onEdit={() => setEditingMeal(meal)}
                       onSetRating={(r) => handleSetRating(meal.id, r)}
+                      hideNutrition={!showNutritionIndicators}
                     />
                   )}
                 </div>

@@ -412,7 +412,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
         )}
         <div>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoSelect} style={{ display: 'none' }} />
-          <button type="button" className="btn btn-muted" onClick={() => fileInputRef.current?.click()} style={{ display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>Foto hochladen</button>
+          <button type="button" className="btn btn-muted" onClick={() => fileInputRef.current?.click()} style={{ display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>{photoPreview ? 'Foto ändern' : 'Foto hochladen'}</button>
         </div>
       </div>
 
@@ -469,7 +469,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '15px' }}>
         <div>
           <label style={{ display: 'block', marginBottom: '5px' }}>Portionen:*</label>
-          <input className="input" type="number" min="1" value={servings} onChange={(e) => setServings(parseInt(e.target.value) || 1)} required style={{ width: '80px' }} />
+          <input className="input" type="number" min="1" value={servings} onChange={(e) => setServings(parseInt(e.target.value) || 0)} onBlur={() => { if (!servings) setServings(1); }} required style={{ width: '80px' }} />
         </div>
         <div>
           <label style={{ display: 'block', marginBottom: '5px' }}>Aktive Zeit:</label>

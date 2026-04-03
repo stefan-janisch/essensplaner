@@ -16,7 +16,7 @@ export interface MealFilterOptions {
   minProtein?: number | '';
 }
 
-export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'fiber';
+export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'fiber' | 'sugar';
 
 export function filterMeals(meals: Meal[], options: MealFilterOptions): Meal[] {
   const { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery } = options;
@@ -76,6 +76,7 @@ export function sortMeals(meals: Meal[], sortBy: SortBy, options?: { pinStarred?
       case 'kcal': return (a.nutritionPerServing?.kcal ?? Infinity) - (b.nutritionPerServing?.kcal ?? Infinity);
       case 'protein': return (b.nutritionPerServing?.protein ?? 0) - (a.nutritionPerServing?.protein ?? 0);
       case 'fiber': return (b.nutritionPerServing?.fiber ?? 0) - (a.nutritionPerServing?.fiber ?? 0);
+      case 'sugar': return (a.nutritionPerServing?.sugar ?? Infinity) - (b.nutritionPerServing?.sugar ?? Infinity);
       case 'name':
       default: return a.name.localeCompare(b.name);
     }

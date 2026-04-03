@@ -4,6 +4,7 @@ export type NutritionInfo = {
   carbs: number;
   fat: number;
   fiber: number;
+  sugar: number;
 }
 
 export type NutritionTargets = {
@@ -12,6 +13,7 @@ export type NutritionTargets = {
   carbs: number;
   fat: number;
   fiber: number;
+  sugar: number;
 }
 
 export const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
@@ -20,6 +22,7 @@ export const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
   carbs: 260,
   fat: 65,
   fiber: 30,
+  sugar: 25,
 };
 
 export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderate' | 'very_active';
@@ -153,6 +156,11 @@ export type ExtraItem = {
   courseId?: number;
 }
 
+export type DisabledSlot = {
+  date: string;
+  mealType: MealType;
+}
+
 export type MealPlan = {
   id: number;
   name: string;
@@ -163,6 +171,7 @@ export type MealPlan = {
   defaultServings?: number;
   entries: MealPlanEntry[];
   extras: ExtraItem[];
+  disabledSlots?: DisabledSlot[];
   courses?: MenuCourse[];
   createdAt?: string;
   isOwner?: boolean;

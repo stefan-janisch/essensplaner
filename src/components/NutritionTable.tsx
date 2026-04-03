@@ -1,36 +1,23 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { api } from '../api/client.js';
 import { useMealPlan } from '../context/MealPlanContext';
 import type { Meal, NutritionInfo } from '../types/index.js';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
+import { getNutrientColor, COLOR_HEX, NUTRITION_LABELS, MORE_IS_BETTER, LESS_IS_BETTER } from '../utils/nutritionColors';
 
 interface NutritionTableProps {
   meal: Meal;
   onTagsUpdated?: (tags: string[]) => void;
 }
 
-const NUTRITION_KEYS: { key: keyof NutritionInfo; label: string; unit: string }[] = [
-  { key: 'kcal', label: 'Kalorien', unit: 'kcal' },
-  { key: 'protein', label: 'Protein', unit: 'g' },
-  { key: 'carbs', label: 'Kohlenh.', unit: 'g' },
-  { key: 'fat', label: 'Fett', unit: 'g' },
-  { key: 'fiber', label: 'Ballast.', unit: 'g' },
+const DISPLAY_KEYS: { key: keyof NutritionInfo; unit: string }[] = [
+  { key: 'kcal', unit: 'kcal' },
+  { key: 'protein', unit: 'g' },
+  { key: 'carbs', unit: 'g' },
+  { key: 'fat', unit: 'g' },
+  { key: 'fiber', unit: 'g' },
+  { key: 'sugar', unit: 'g' },
 ];
-
-const BAR_COLORS = {
-  low: '#ffa94d',    // orange — under 50%
-  good: '#51cf66',   // green — 50-130%
-  high: '#ff6b6b',   // red — over 130%
-};
-
-// Protein and fiber: more is better (over 100% stays green)
-const MORE_IS_BETTER: Set<keyof NutritionInfo> = new Set(['protein', 'fiber']);
-
-function getBarColor(percent: number, key: keyof NutritionInfo): string {
-  if (percent < 50) return BAR_COLORS.low;
-  if (percent <= 130 || MORE_IS_BETTER.has(key)) return BAR_COLORS.good;
-  return BAR_COLORS.high;
-}
 
 export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
   const { nutritionTargets, mealsPerDay } = useMealPlan();
@@ -46,6 +33,7 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
     carbs: Math.round(targets.carbs / mpd),
     fat: Math.round(targets.fat / mpd),
     fiber: Math.round(targets.fiber / mpd),
+    sugar: Math.round((targets.sugar ?? 25) / mpd),
   };
 
   const handleEstimate = async () => {
@@ -94,39 +82,59 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
     );
   }
 
-  if (!nutrition) return null;
+  const [portionScale, setPortionScale] = useState(100); // percentage: 50-200
+
+  const scaled = useMemo(() => {
+    if (!nutrition) return null;
+    const s = portionScale / 100;
+    return Object.fromEntries(
+      DISPLAY_KEYS.map(({ key }) => [key, Math.round(nutrition[key] * s)])
+    ) as Record<keyof NutritionInfo, number>;
+  }, [nutrition, portionScale]);
+
+  if (!nutrition || !scaled) return null;
 
   return (
     <div className="nutrition-section">
       <div className="nutrition-header">Geschätzte Nährwerte pro Portion</div>
 
+      {/* Portion size slider */}
+      <div className="nutrition-portion-slider">
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>0.5×</span>
+        <input type="range" min="50" max="200" step="5" value={portionScale}
+          onChange={e => setPortionScale(parseInt(e.target.value))}
+          style={{ flex: 1 }} />
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>2×</span>
+        <span className="nutrition-portion-badge">{(portionScale / 100).toFixed(portionScale % 100 === 0 ? 0 : 1)}× Portion</span>
+      </div>
+
       {/* Number grid */}
       <div className="nutrition-grid">
-        {NUTRITION_KEYS.map(({ key, label, unit }) => (
+        {DISPLAY_KEYS.map(({ key, unit }) => (
           <div key={key} className="nutrition-item">
             <div className="nutrition-value">
-              {nutrition[key]}{key !== 'kcal' && <span className="nutrition-unit">{unit}</span>}
+              {scaled[key]}{key !== 'kcal' && <span className="nutrition-unit">{unit}</span>}
             </div>
-            <div className="nutrition-label">{key === 'kcal' ? 'kcal' : label}</div>
+            <div className="nutrition-label">{key === 'kcal' ? 'kcal' : NUTRITION_LABELS[key]}</div>
           </div>
         ))}
       </div>
 
       {/* Bar chart — actual vs target per meal */}
       <div className="nutrition-bar-chart">
-        {NUTRITION_KEYS.map(({ key, label }) => {
+        {DISPLAY_KEYS.map(({ key }) => {
           const target = perMealTargets[key];
-          const actual = nutrition[key];
+          const actual = scaled[key];
           const percent = target > 0 ? Math.round((actual / target) * 100) : 0;
-          const barWidth = Math.min(percent, 200); // cap at 200%
+          const barWidth = Math.min(percent, 200);
 
           return (
             <div key={key} className="nutrition-bar-row">
-              <div className="nutrition-bar-label">{label}</div>
+              <div className="nutrition-bar-label">{NUTRITION_LABELS[key]}</div>
               <div className="nutrition-bar-track">
                 <div
                   className="nutrition-bar-fill"
-                  style={{ width: `${barWidth / 2}%`, backgroundColor: getBarColor(percent, key) }}
+                  style={{ width: `${barWidth / 2}%`, backgroundColor: COLOR_HEX[getNutrientColor(percent, key)] }}
                 />
                 <div className="nutrition-bar-target" />
               </div>
@@ -135,6 +143,32 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
           );
         })}
       </div>
+
+      {/* Optimal serving recommendation */}
+      {(() => {
+        const ratios = DISPLAY_KEYS.map(({ key }) => {
+          const t = perMealTargets[key];
+          if (t <= 0) return 0;
+          const r = nutrition[key] / t;
+          // For "more is better" nutrients, cap at 1 so excess doesn't pull M down
+          if (MORE_IS_BETTER.has(key)) return Math.min(r, 1);
+          // For "less is better" nutrients, cap at 1 so being under target doesn't push M up
+          if (LESS_IS_BETTER.has(key)) return Math.max(r, 1);
+          return r;
+        }).filter(r => r > 0);
+        if (ratios.length === 0) return null;
+        const sumR = ratios.reduce((a, r) => a + r, 0);
+        const sumR2 = ratios.reduce((a, r) => a + r * r, 0);
+        const M = sumR2 > 0 ? sumR / sumR2 : 1;
+        if (Math.abs(M - 1) <= 0.05) return null;
+        const scaledKcal = Math.round(nutrition.kcal * M);
+        const mPct = Math.round(M * 100 / 5) * 5; // snap to 5% steps
+        return (
+          <div className="nutrition-recommendation" onClick={() => setPortionScale(Math.max(50, Math.min(200, mPct)))} style={{ cursor: 'pointer' }}>
+            Empfohlene Portionsgröße: <strong>{M.toFixed(1)}×</strong> ({scaledKcal} kcal) <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>— klicken zum Anwenden</span>
+          </div>
+        );
+      })()}
 
       <div className="nutrition-disclaimer">
         Schätzwerte — können von tatsächlichen Nährwerten abweichen. Balken zeigen Anteil an der empfohlenen Menge pro Mahlzeit (1/{mpd} Tagesbedarf).

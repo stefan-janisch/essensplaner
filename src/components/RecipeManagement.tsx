@@ -10,6 +10,8 @@ import type { Meal } from '../types/index.js';
 import type { RecipeFormData } from './RecipeForm';
 import { RecipeChat } from './RecipeChat';
 import { NutritionTable } from './NutritionTable';
+import { RecipeNutritionDots, useRecipeNutritionColors } from './RecipeNutritionIndicator';
+import { COLOR_HEX } from '../utils/nutritionColors';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -40,6 +42,7 @@ export function RecipeCard({
   selected,
   onToggleSelect,
   compact,
+  hideNutrition,
   dragHandleProps,
 }: {
   meal: Meal;
@@ -52,10 +55,14 @@ export function RecipeCard({
   selected?: boolean;
   onToggleSelect?: () => void;
   compact?: boolean;
+  hideNutrition?: boolean;
   dragHandleProps?: Record<string, unknown>;
 }) {
+  const nutritionColors = useRecipeNutritionColors(meal);
+  const borderStyle = nutritionColors && !hideNutrition ? { borderBottom: `3px solid ${COLOR_HEX[nutritionColors.overall]}` } : {};
+
   return (
-    <div className="recipe-card" onClick={!dragHandleProps && onView ? onView : undefined} style={{ ...(selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : {}), cursor: !dragHandleProps && onView ? 'pointer' : undefined }}>
+    <div className="recipe-card" onClick={!dragHandleProps && onView ? onView : undefined} style={{ ...borderStyle, ...(selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : {}), cursor: !dragHandleProps && onView ? 'pointer' : undefined }}>
       <div
         className={`recipe-card-photo${compact ? ' recipe-card-photo-compact' : ''}`}
         style={{ position: 'relative', cursor: dragHandleProps ? 'grab' : undefined }}
@@ -66,6 +73,7 @@ export function RecipeCard({
         ) : (
           <div className="recipe-card-photo-placeholder">🍽️</div>
         )}
+        {!hideNutrition && <RecipeNutritionDots meal={meal} />}
         {onToggleSelect && (
           <input
             type="checkbox"
@@ -649,6 +657,12 @@ export const RecipeManagement: React.FC = () => {
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
   const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
   const [minProtein, setMinProtein] = useState<number | ''>('');
+  const [showNutritionIndicators, setShowNutritionIndicators] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+
+  const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
+    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
+    + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0) + (minProtein !== '' ? 1 : 0);
 
   const [viewingMeal, setViewingMeal] = useState<Meal | null>(null);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
@@ -792,38 +806,6 @@ export const RecipeManagement: React.FC = () => {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <select
             className="input"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            <option value="">Alle Kategorien</option>
-            {RECIPE_CATEGORIES.map(cat => (
-              <option key={cat.value} value={cat.value}>{cat.label}</option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={maxPrepTime}
-            onChange={(e) => setMaxPrepTime(e.target.value ? Number(e.target.value) : '')}
-          >
-            <option value="">Aktive Zeit</option>
-            <option value="15">⏱ Aktiv ≤ 15 Min.</option>
-            <option value="30">⏱ Aktiv ≤ 30 Min.</option>
-            <option value="60">⏱ Aktiv ≤ 60 Min.</option>
-          </select>
-          <select
-            className="input"
-            value={maxTotalTime}
-            onChange={(e) => setMaxTotalTime(e.target.value ? Number(e.target.value) : '')}
-          >
-            <option value="">Gesamtzeit</option>
-            <option value="15">⏱ Gesamt ≤ 15 Min.</option>
-            <option value="30">⏱ Gesamt ≤ 30 Min.</option>
-            <option value="45">⏱ Gesamt ≤ 45 Min.</option>
-            <option value="60">⏱ Gesamt ≤ 60 Min.</option>
-            <option value="90">⏱ Gesamt ≤ 90 Min.</option>
-          </select>
-          <select
-            className="input"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortBy)}
           >
@@ -833,54 +815,73 @@ export const RecipeManagement: React.FC = () => {
             <option value="kcal">Kalorien ↑</option>
             <option value="protein">Protein ↓</option>
             <option value="fiber">Ballaststoffe ↓</option>
+            <option value="sugar">Zug. Zucker ↑</option>
           </select>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
           <button
-            className={`pill ${starFilter === 'all' ? 'pill-active' : ''}`}
-            onClick={() => setStarFilter('all')}
+            className="btn-ghost"
+            onClick={() => setShowFilters(!showFilters)}
+            style={{ fontSize: '13px', padding: '4px 8px', color: 'var(--accent)' }}
           >
-            Alle
+            {showFilters ? '▾' : '▸'} Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
           </button>
           <button
-            className={`pill ${starFilter === 'starred' ? 'pill-active' : ''}`}
-            onClick={() => setStarFilter('starred')}
+            className={`pill ${showNutritionIndicators ? 'pill-active' : ''}`}
+            onClick={() => setShowNutritionIndicators(!showNutritionIndicators)}
+            title="Nährwert-Ampel ein/ausblenden"
+            style={{ marginLeft: 'auto' }}
           >
-            ⭐ Favoriten
+            🚦
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '13px', color: 'var(--text)', flexShrink: 0 }}>Bewertung:</span>
-          <select className="input" value={ratingComparator} onChange={(e) => setRatingComparator(e.target.value as RatingComparator)} style={{ width: '55px', fontSize: '12px', padding: '4px 4px' }}>
-            <option value="gte">≥</option>
-            <option value="eq">=</option>
-            <option value="lte">≤</option>
-          </select>
-          <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
-            <span
-              onClick={() => setRatingFilter(ratingFilter === 0 ? '' : 0)}
-              style={{ cursor: 'pointer', fontSize: '14px', opacity: ratingFilter === 0 ? 1 : 0.3, padding: '0 2px' }}
-              title="Ohne Bewertung"
-            >
-              ∅
-            </span>
-            {[1, 2, 3, 4, 5].map(s => (
-              <span
-                key={s}
-                onClick={() => setRatingFilter(ratingFilter === s ? '' : s)}
-                style={{ cursor: 'pointer', fontSize: '18px', opacity: ratingFilter !== '' && s <= ratingFilter ? 1 : 0.3 }}
-              >
-                ★
-              </span>
-            ))}
+        {showFilters && (
+        <div style={{ marginTop: '8px', padding: '10px', background: 'var(--surface-0)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '8px' }}>
+            <select className="input" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="">Alle Kategorien</option>
+              {RECIPE_CATEGORIES.map(cat => (
+                <option key={cat.value} value={cat.value}>{cat.label}</option>
+              ))}
+            </select>
+            <select className="input" value={maxPrepTime} onChange={(e) => setMaxPrepTime(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">Aktive Zeit</option>
+              <option value="15">⏱ ≤ 15 Min.</option>
+              <option value="30">⏱ ≤ 30 Min.</option>
+              <option value="60">⏱ ≤ 60 Min.</option>
+            </select>
+            <select className="input" value={maxTotalTime} onChange={(e) => setMaxTotalTime(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">Gesamtzeit</option>
+              <option value="30">⏱ ≤ 30 Min.</option>
+              <option value="60">⏱ ≤ 60 Min.</option>
+              <option value="90">⏱ ≤ 90 Min.</option>
+            </select>
           </div>
-          <span style={{ fontSize: '13px', color: 'var(--text)', flexShrink: 0, marginLeft: '12px' }}>P≥</span>
-          <input className="input" type="number" min="0" placeholder="g" value={minProtein}
-            onChange={e => setMinProtein(e.target.value ? Math.max(0, parseInt(e.target.value)) : '')}
-            style={{ width: '50px', fontSize: '12px', padding: '4px 6px' }} />
-        </div>
+
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+            <button className={`pill ${starFilter === 'all' ? 'pill-active' : ''}`} onClick={() => setStarFilter('all')}>Alle</button>
+            <button className={`pill ${starFilter === 'starred' ? 'pill-active' : ''}`} onClick={() => setStarFilter('starred')}>⭐ Favoriten</button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
+            <span style={{ fontSize: '13px', color: 'var(--text)', flexShrink: 0 }}>Bewertung:</span>
+            <select className="input" value={ratingComparator} onChange={(e) => setRatingComparator(e.target.value as RatingComparator)} style={{ width: '55px', fontSize: '12px', padding: '4px 4px' }}>
+              <option value="gte">≥</option>
+              <option value="eq">=</option>
+              <option value="lte">≤</option>
+            </select>
+            <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+              <span onClick={() => setRatingFilter(ratingFilter === 0 ? '' : 0)}
+                style={{ cursor: 'pointer', fontSize: '14px', opacity: ratingFilter === 0 ? 1 : 0.3, padding: '0 2px' }} title="Ohne Bewertung">∅</span>
+              {[1, 2, 3, 4, 5].map(s => (
+                <span key={s} onClick={() => setRatingFilter(ratingFilter === s ? '' : s)}
+                  style={{ cursor: 'pointer', fontSize: '18px', opacity: ratingFilter !== '' && s <= ratingFilter ? 1 : 0.3 }}>★</span>
+              ))}
+            </div>
+            <span style={{ fontSize: '13px', color: 'var(--text)', flexShrink: 0, marginLeft: '12px' }}>P≥</span>
+            <input className="input" type="number" min="0" placeholder="g" value={minProtein}
+              onChange={e => setMinProtein(e.target.value ? Math.max(0, parseInt(e.target.value)) : '')}
+              style={{ width: '50px', fontSize: '12px', padding: '4px 6px' }} />
+          </div>
 
         {TAG_GROUPS.map(group => {
           const values = tagValuesByGroup[group.key];
@@ -908,6 +909,8 @@ export const RecipeManagement: React.FC = () => {
             </div>
           );
         })}
+        </div>
+        )}
       </div>
 
       {/* Recipe Grid */}
@@ -933,6 +936,7 @@ export const RecipeManagement: React.FC = () => {
               onSetRating={(r) => handleSetRating(meal.id, r)}
               selected={selectedIds.has(meal.id)}
               onToggleSelect={() => toggleSelect(meal.id)}
+              hideNutrition={!showNutritionIndicators}
             />
           ))}
         </div>

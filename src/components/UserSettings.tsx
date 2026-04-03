@@ -100,12 +100,14 @@ function ProfileTab() {
         <div className="settings-field">
           <label>Standard-Portionen</label>
           <input className="input" type="number" min="1" value={servings}
-            onChange={e => setServings(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '80px' }} />
+            onChange={e => setServings(parseInt(e.target.value) || 0)}
+            onBlur={() => { if (!servings) setServings(1); }} style={{ width: '80px' }} />
         </div>
         <div className="settings-field">
           <label>Mahlzeiten pro Tag</label>
           <input className="input" type="number" min="1" max="10" value={mpd}
-            onChange={e => setMpd(Math.max(1, Math.min(10, parseInt(e.target.value) || 3)))} style={{ width: '80px' }} />
+            onChange={e => setMpd(parseInt(e.target.value) || 0)}
+            onBlur={() => { if (!mpd) setMpd(3); }} style={{ width: '80px' }} />
         </div>
       </div>
 
@@ -121,6 +123,7 @@ function ProfileTab() {
             { key: 'carbs' as const, label: 'Kohlenhydrate', unit: 'g' },
             { key: 'fat' as const, label: 'Fett', unit: 'g' },
             { key: 'fiber' as const, label: 'Ballaststoffe', unit: 'g' },
+            { key: 'sugar' as const, label: 'Zug. Zucker (max.)', unit: 'g' },
           ]).map(({ key, label, unit }) => (
             <div key={key} className="settings-field">
               <label>{label} ({unit})</label>

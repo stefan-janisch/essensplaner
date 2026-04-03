@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -15,14 +15,36 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
   const { activePlan, defaultServings, updatePlanServings } = useMealPlan();
   const isMobile = useIsMobile();
 
+  const planServings = activePlan?.defaultServings ?? defaultServings;
+  const [localServings, setLocalServings] = useState(String(planServings));
+
+  // Sync when plan changes
+  useEffect(() => {
+    setLocalServings(String(planServings));
+  }, [planServings]);
+
+  const commitServings = () => {
+    const n = parseInt(localServings);
+    if (!n || n < 1) {
+      setLocalServings(String(planServings));
+    } else if (n !== planServings && activePlan) {
+      updatePlanServings(activePlan.id, n);
+    }
+  };
+
   if (!activePlan) return null;
 
-  const planServings = activePlan.defaultServings ?? defaultServings;
-
-  const handleServingsChange = (value: number) => {
-    const s = Math.max(1, value);
-    updatePlanServings(activePlan.id, s);
-  };
+  const servingsInput = (
+    <input
+      className="input"
+      type="number"
+      min="1"
+      value={localServings}
+      onChange={(e) => setLocalServings(e.target.value)}
+      onBlur={commitServings}
+      onKeyDown={(e) => { if (e.key === 'Enter') commitServings(); }}
+    />
+  );
 
   if (isMobile) {
     return (
@@ -39,14 +61,7 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-          <input
-            className="input"
-            type="number"
-            min="1"
-            value={planServings}
-            onChange={(e) => handleServingsChange(parseInt(e.target.value) || 1)}
-            style={{ width: '40px', textAlign: 'center', padding: '3px 4px', fontSize: '13px' }}
-          />
+          {React.cloneElement(servingsInput, { style: { width: '40px', textAlign: 'center', padding: '3px 4px', fontSize: '13px' } })}
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>P</span>
         </div>
       </div>
@@ -55,12 +70,10 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
 
   return (
     <div className="panel date-range-bar" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      {/* Left: back */}
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ flexShrink: 0 }}>
         &larr; Alle Pläne
       </button>
 
-      {/* Center: title + date range */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
         <strong style={{ fontSize: '16px', color: 'var(--text-h)' }}>{activePlan.name}</strong>
         {activePlan.startDate && activePlan.endDate && (
@@ -75,17 +88,9 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
         )}
       </div>
 
-      {/* Right: servings */}
       <div className="servings-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>Standard-Portionen:</label>
-        <input
-          className="input"
-          type="number"
-          min="1"
-          value={planServings}
-          onChange={(e) => handleServingsChange(parseInt(e.target.value) || 1)}
-          style={{ width: '56px', textAlign: 'center', padding: '4px 8px' }}
-        />
+        {React.cloneElement(servingsInput, { style: { width: '56px', textAlign: 'center', padding: '4px 8px' } })}
       </div>
     </div>
   );

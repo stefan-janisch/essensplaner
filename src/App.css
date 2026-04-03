@@ -439,6 +439,23 @@ label {
   justify-content: center;
 }
 
+.recipe-nutrition-dots {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.recipe-nutrition-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 2px rgba(0,0,0,0.3);
+}
+
 /* === RATING === */
 .rating-stars {
   color: var(--color-warning);
@@ -1223,6 +1240,31 @@ label {
   font-size: 11px;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.nutrition-portion-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.nutrition-portion-badge {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  min-width: 75px;
+  text-align: right;
+}
+
+.nutrition-recommendation {
+  font-size: 13px;
+  color: var(--text-h);
+  background: #f0f4ff;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  text-align: center;
 }
 
 .nutrition-disclaimer {

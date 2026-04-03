@@ -178,6 +178,10 @@ router.get('/:planId', (req, res) => {
     'SELECT * FROM menu_courses WHERE plan_id = ? ORDER BY sort_order'
   ).all(plan.id);
 
+  const disabledSlots = db.prepare(
+    'SELECT date, meal_type FROM disabled_slots WHERE plan_id = ?'
+  ).all(plan.id).map(r => ({ date: r.date, mealType: r.meal_type }));
+
   const ownerRow = db.prepare('SELECT email FROM users WHERE id = ?').get(plan.user_id);
 
   res.json({
@@ -186,6 +190,7 @@ router.get('/:planId', (req, res) => {
     entries: entries.map(rowToEntry),
     extras: extras.map(rowToExtra),
     courses: courses.map(rowToCourse),
+    disabledSlots,
     sharedMeals,
     collaborators,
   });
@@ -334,6 +339,38 @@ router.put('/:planId/entries/:entryId/move', (req, res) => {
   } catch (err) {
     console.error('Move entry error:', err);
     res.status(500).json({ error: 'Eintrag konnte nicht verschoben werden' });
+  }
+});
+
+// --- Disabled slots (empty slot toggle) ---
+
+router.post('/:planId/disabled-slots', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  try {
+    const { date, mealType } = req.body;
+    if (!date || !mealType) {
+      return res.status(400).json({ error: 'date und mealType sind erforderlich' });
+    }
+
+    // Toggle: if exists, remove; if not, add
+    const existing = db.prepare(
+      'SELECT id FROM disabled_slots WHERE plan_id = ? AND date = ? AND meal_type = ?'
+    ).get(plan.id, date, mealType);
+
+    if (existing) {
+      db.prepare('DELETE FROM disabled_slots WHERE id = ?').run(existing.id);
+      res.json({ disabled: false });
+    } else {
+      db.prepare(
+        'INSERT INTO disabled_slots (plan_id, date, meal_type) VALUES (?, ?, ?)'
+      ).run(plan.id, date, mealType);
+      res.json({ disabled: true });
+    }
+  } catch (err) {
+    console.error('Toggle disabled slot error:', err);
+    res.status(500).json({ error: 'Slot konnte nicht umgeschaltet werden' });
   }
 });
 

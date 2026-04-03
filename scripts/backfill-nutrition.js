@@ -56,13 +56,14 @@ for (const meal of meals) {
           content: `Du bist ein Ernährungsexperte. Schätze die Nährwerte für die folgenden Zutaten. Die Mengen sind bereits für EINE Portion angegeben.
 
 Gib das Ergebnis als JSON zurück:
-{ "kcal": number, "protein": number, "carbs": number, "fat": number, "fiber": number, "tags": string[] }
+{ "kcal": number, "protein": number, "carbs": number, "fat": number, "fiber": number, "sugar": number, "tags": string[] }
 
 - kcal: Kilokalorien
 - protein: Protein in Gramm
 - carbs: Kohlenhydrate in Gramm
 - fat: Fett in Gramm
 - fiber: Ballaststoffe in Gramm
+- sugar: ZUGESETZTER Zucker in Gramm (NUR Haushaltszucker, Honig, Sirup — NICHT natürlicher Zucker aus Obst, Milch etc.)
 - tags: Array mit 0-2 Einträgen aus ["gesund", "kalorienarm"]:
   - "kalorienarm": wenn ≤ 500 kcal und fettarm
   - "gesund": ausgewogenes Verhältnis, reich an Ballaststoffen/Gemüse
@@ -84,6 +85,7 @@ Antworte NUR mit dem JSON-Objekt.`
       carbs: Math.round(Math.max(0, Number(parsed.carbs) || 0)),
       fat: Math.round(Math.max(0, Number(parsed.fat) || 0)),
       fiber: Math.round(Math.max(0, Number(parsed.fiber) || 0)),
+      sugar: Math.round(Math.max(0, Number(parsed.sugar) || 0)),
     };
 
     // Auto-tagging

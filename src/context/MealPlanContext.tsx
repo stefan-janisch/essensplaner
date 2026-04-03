@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
-import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo, NutritionProfile } from '../types/index.js';
+import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo, NutritionProfile, DisabledSlot } from '../types/index.js';
 
 interface MealPlanContextType {
   state: MealPlanState;
@@ -50,6 +50,7 @@ interface MealPlanContextType {
   toggleEntryEnabled: (entryId: number) => void;
   updateEntryServings: (entryId: number, servings: number) => void;
   moveEntry: (entryId: number, toDate: string, toMealType: MealType) => void;
+  toggleSlotDisabled: (date: string, mealType: MealType) => void;
   renameIngredientInAllMeals: (oldName: string, newName: string) => void;
 
   // Extras (free-form items)
@@ -315,6 +316,17 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }));
   }, []);
 
+  const updateActivePlanDisabledSlots = useCallback((updater: (slots: DisabledSlot[]) => DisabledSlot[]) => {
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p =>
+        p.id === prev.activePlanId
+          ? { ...p, disabledSlots: updater(p.disabledSlots || []) }
+          : p
+      ),
+    }));
+  }, []);
+
   // --- Meal CRUD ---
 
   // Fire-and-forget nutrition estimation, updates meal in state when done
@@ -463,6 +475,13 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     const plan = state.plans.find(p => p.id === state.activePlanId);
     const servings = plan?.defaultServings ?? defaultServings;
 
+    // Clear disabled slot if present
+    const isDisabled = plan?.disabledSlots?.some(s => s.date === date && s.mealType === mealType);
+    if (isDisabled) {
+      updateActivePlanDisabledSlots(sl => sl.filter(s => !(s.date === date && s.mealType === mealType)));
+      api.post(`/api/plans/${state.activePlanId}/disabled-slots`, { date, mealType }).catch(() => {});
+    }
+
     // Optimistic: create temporary entry with negative id
     const tempId = -Date.now();
     const newEntry: MealPlanEntry = {
@@ -476,7 +495,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     updateActivePlanEntries(entries => [...entries, newEntry]);
 
     api.post<MealPlanEntry>(`/api/plans/${state.activePlanId}/entries`, {
-      date, mealType, mealId, servings: defaultServings,
+      date, mealType, mealId, servings,
     }).then(serverEntry => {
       // Replace temp entry with server entry (which has real id)
       updateActivePlanEntries(entries =>
@@ -532,6 +551,25 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       console.error('Move entry failed:', err);
     });
   }, [state.activePlanId, updateActivePlanEntries]);
+
+  // --- Disabled slots (empty slot toggle) ---
+
+  const toggleSlotDisabled = useCallback((date: string, mealType: MealType) => {
+    if (!state.activePlanId) return;
+    const slots = activePlan?.disabledSlots || [];
+    const isCurrentlyDisabled = slots.some(s => s.date === date && s.mealType === mealType);
+
+    // Optimistic toggle
+    if (isCurrentlyDisabled) {
+      updateActivePlanDisabledSlots(sl => sl.filter(s => !(s.date === date && s.mealType === mealType)));
+    } else {
+      updateActivePlanDisabledSlots(sl => [...sl, { date, mealType }]);
+    }
+
+    api.post(`/api/plans/${state.activePlanId}/disabled-slots`, { date, mealType }).catch(err => {
+      console.error('Toggle disabled slot failed:', err);
+    });
+  }, [state.activePlanId, activePlan, updateActivePlanDisabledSlots]);
 
   // --- Extras (free-form items) ---
 
@@ -692,6 +730,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         toggleEntryEnabled,
         updateEntryServings,
         moveEntry,
+        toggleSlotDisabled,
         renameIngredientInAllMeals,
         addExtra,
         updateExtra,
