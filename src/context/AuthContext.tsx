@@ -7,7 +7,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<string>;
   logout: () => Promise<void>;
   hasPendingMigration: boolean;
   runMigration: () => Promise<void>;
@@ -54,10 +54,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (hasLocalData()) setHasPendingMigration(true);
   };
 
-  const register = async (email: string, password: string) => {
-    const u = await api.post<User>('/api/auth/register', { email, password });
-    setUser(u);
-    if (hasLocalData()) setHasPendingMigration(true);
+  const register = async (email: string, password: string): Promise<string> => {
+    const result = await api.post<{ message: string }>('/api/auth/register', { email, password });
+    return result.message;
   };
 
   const logout = async () => {

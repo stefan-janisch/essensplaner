@@ -53,7 +53,7 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
               type="number"
               min="1"
               value={editServings}
-              onChange={(e) => setEditServings(parseInt(e.target.value) || 0)}
+              onChange={(e) => setEditServings(parseFloat(e.target.value) || 0)}
               onBlur={() => { if (!editServings) setEditServings(1); }}
               style={{ width: '44px', padding: '2px 4px', fontSize: '12px' }}
             />
@@ -64,7 +64,7 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
             onClick={() => { setEditServings(entry.servings); setIsEditingServings(true); }}
             style={{ cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}
           >
-            {entry.servings}P
+            {entry.servings} P.
           </span>
         )}
         <button

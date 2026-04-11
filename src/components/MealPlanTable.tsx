@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { format, parseISO, eachDayOfInterval } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -6,6 +6,7 @@ import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
 import { DayNutritionDot } from './DayNutritionDot';
+import { MenuAddContext } from './PlanViewLayout';
 
 export interface MealCellItemProps {
   entry: MealPlanEntry;
@@ -106,18 +107,18 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
             type="number"
             min="1"
             value={editServings}
-            onChange={(e) => setEditServings(parseInt(e.target.value) || 0)}
+            onChange={(e) => setEditServings(parseFloat(e.target.value) || 0)}
             onBlur={() => { if (!editServings) setEditServings(1); }}
             style={{ width: '50px', padding: '3px 6px', fontSize: '12px' }}
             onClick={(e) => e.stopPropagation()}
           />
-          <span style={{ fontSize: '12px' }}>Pers.</span>
+          <span style={{ fontSize: '12px' }}>Port.</span>
           <button className="btn btn-primary btn-sm" onClick={handleSaveServings}>OK</button>
         </div>
       ) : (
         <div style={{ fontSize: '11px', color: 'var(--text)', textAlign: 'center' }}>
           <span onClick={handleEditServings} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
-            {entry.servings} Person{entry.servings !== 1 ? 'en' : ''}
+            {entry.servings} Portion{entry.servings !== 1 ? 'en' : ''}
           </span>
           {' · '}
           <span onClick={handleRemove} style={{ cursor: 'pointer', color: 'var(--color-danger)' }}>
@@ -154,6 +155,7 @@ interface MealCellProps {
 
 const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
   const { allMealsForActivePlan, activePlan, toggleSlotDisabled } = useMealPlan();
+  const onAddRequest = useContext(MenuAddContext);
 
   const entries = (activePlan?.entries || []).filter(
     e => e.date === date && e.mealType === mealType
@@ -180,19 +182,33 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
       }}
     >
       {entries.length === 0 ? (
-        <div
-          style={{ color: 'var(--text)', opacity: isSlotDisabled ? 1 : 0.3, textAlign: 'center', padding: '8px', fontSize: '13px', cursor: 'pointer' }}
-          onClick={() => toggleSlotDisabled(date, mealType)}
-          title={isSlotDisabled ? 'Slot aktivieren' : 'Slot deaktivieren (z.B. auswärts essen)'}
-        >
-          {isSlotDisabled ? '✗' : '—'}
+        <div style={{ textAlign: 'center', padding: '8px', fontSize: '13px' }}>
+          {isSlotDisabled ? (
+            <span style={{ color: 'var(--text)', cursor: 'pointer' }} onClick={() => toggleSlotDisabled(date, mealType)} title="Slot aktivieren">✗</span>
+          ) : (
+            <>
+              <div style={{ color: 'var(--text)', opacity: 0.3, cursor: 'pointer' }} onClick={() => toggleSlotDisabled(date, mealType)} title="Slot deaktivieren">—</div>
+              {onAddRequest && (
+                <div style={{ marginTop: '4px' }}>
+                  <button className="btn-ghost" onClick={() => onAddRequest(date, mealType)} style={{ color: 'var(--accent)', fontSize: '14px', padding: '0 4px', opacity: 0.5 }} title="Rezept hinzufügen">+</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       ) : (
-        entries.map(entry => {
-          const meal = allMealsForActivePlan.find(m => m.id === entry.mealId);
-          if (!meal) return null;
-          return <MealCellItem key={entry.id} entry={entry} meal={meal} />;
-        })
+        <>
+          {entries.map(entry => {
+            const meal = allMealsForActivePlan.find(m => m.id === entry.mealId);
+            if (!meal) return null;
+            return <MealCellItem key={entry.id} entry={entry} meal={meal} />;
+          })}
+          {onAddRequest && (
+            <div style={{ textAlign: 'center', marginTop: '4px' }}>
+              <button className="btn-ghost" onClick={() => onAddRequest(date, mealType)} style={{ color: 'var(--accent)', fontSize: '14px', padding: '0 4px', opacity: 0.5 }} title="Weiteres Rezept hinzufügen">+</button>
+            </div>
+          )}
+        </>
       )}
     </td>
   );

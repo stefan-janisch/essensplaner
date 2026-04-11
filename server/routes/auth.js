@@ -41,13 +41,8 @@ router.post('/register', authLimiter, async (req, res) => {
       'INSERT INTO users (email, password_hash) VALUES (?, ?)'
     ).run(email.toLowerCase(), passwordHash);
 
-    req.session.userId = result.lastInsertRowid;
-
-    res.status(201).json({
-      id: result.lastInsertRowid,
-      email: email.toLowerCase(),
-      defaultServings: 2,
-      isAdmin: false
+    res.status(202).json({
+      message: 'Registrierung erfolgreich! Dein Konto muss zuerst von einem Administrator freigeschaltet werden. Bitte kontaktiere den Admin.'
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -71,6 +66,10 @@ router.post('/login', authLimiter, async (req, res) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
+    }
+
+    if (!user.is_approved) {
+      return res.status(403).json({ error: 'Dein Konto wurde noch nicht freigeschaltet. Bitte kontaktiere den Administrator.' });
     }
 
     req.session.userId = user.id;
@@ -98,9 +97,13 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const user = db.prepare('SELECT id, email, default_servings, is_admin FROM users WHERE id = ?').get(req.userId);
+  const user = db.prepare('SELECT id, email, default_servings, is_admin, is_approved FROM users WHERE id = ?').get(req.userId);
   if (!user) {
     return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+  }
+  if (!user.is_approved) {
+    req.session.destroy(() => {});
+    return res.status(403).json({ error: 'Dein Konto wurde noch nicht freigeschaltet.' });
   }
   res.json({
     id: user.id,

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client.js';
 
 type GroupBy = 'none' | 'endpoint' | 'user' | 'day';
-type AdminSection = 'ai-costs';
+type AdminSection = 'ai-costs' | 'users';
 
 interface UsageSummary {
   call_count: number;
@@ -191,6 +191,124 @@ function AiCostsView() {
   );
 }
 
+interface AdminUser {
+  id: number;
+  email: string;
+  is_admin: number;
+  is_approved: number;
+  created_at: string;
+}
+
+function UsersView() {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.get<{ users: AdminUser[] }>('/api/admin/users');
+      setUsers(data.users);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  const handleApprove = async (userId: number) => {
+    try {
+      await api.patch(`/api/admin/users/${userId}/approve`, {});
+      fetchUsers();
+    } catch (err) {
+      console.error('Failed to approve user:', err);
+    }
+  };
+
+  const handleDelete = async (userId: number, email: string) => {
+    if (!confirm(`Benutzer "${email}" wirklich löschen? Alle Daten werden unwiderruflich gelöscht.`)) return;
+    try {
+      await api.delete(`/api/admin/users/${userId}`);
+      fetchUsers();
+    } catch (err) {
+      console.error('Failed to delete user:', err);
+    }
+  };
+
+  if (loading) {
+    return <div style={{ padding: '24px', textAlign: 'center' }}>Laden...</div>;
+  }
+
+  const pending = users.filter(u => !u.is_approved);
+  const approved = users.filter(u => u.is_approved);
+
+  return (
+    <div>
+      {pending.length > 0 && (
+        <>
+          <h3 style={{ marginBottom: '12px' }}>Ausstehende Freischaltung ({pending.length})</h3>
+          <div className="admin-table-wrapper" style={{ marginBottom: '32px' }}>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>E-Mail</th>
+                  <th>Registriert am</th>
+                  <th style={{ textAlign: 'right' }}>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map(u => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.created_at?.replace('T', ' ').slice(0, 16)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div className="admin-user-actions" style={{ justifyContent: 'flex-end' }}>
+                        <button className="btn-approve" onClick={() => handleApprove(u.id)}>Freischalten</button>
+                        <button className="btn-deny" onClick={() => handleDelete(u.id, u.email)}>Löschen</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <h3 style={{ marginBottom: '12px' }}>Freigeschaltete Benutzer ({approved.length})</h3>
+      <div className="admin-table-wrapper">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>E-Mail</th>
+              <th>Rolle</th>
+              <th>Registriert am</th>
+              <th style={{ textAlign: 'right' }}>Aktionen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {approved.map(u => (
+              <tr key={u.id}>
+                <td>{u.email}</td>
+                <td>{u.is_admin ? 'Admin' : 'Benutzer'}</td>
+                <td>{u.created_at?.replace('T', ' ').slice(0, 16)}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {u.is_admin ? (
+                    <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>(Du)</span>
+                  ) : (
+                    <button className="btn-deny" onClick={() => handleDelete(u.id, u.email)}>Löschen</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function AdminPanel() {
   const [section, setSection] = useState<AdminSection>('ai-costs');
 
@@ -200,6 +318,12 @@ export function AdminPanel() {
         <h3>Admin</h3>
         <nav>
           <button
+            className={`admin-nav-item ${section === 'users' ? 'active' : ''}`}
+            onClick={() => setSection('users')}
+          >
+            Benutzer
+          </button>
+          <button
             className={`admin-nav-item ${section === 'ai-costs' ? 'active' : ''}`}
             onClick={() => setSection('ai-costs')}
           >
@@ -208,8 +332,9 @@ export function AdminPanel() {
         </nav>
       </div>
       <div className="admin-content">
-        <h2>{section === 'ai-costs' ? 'API-Kosten' : ''}</h2>
+        <h2>{section === 'ai-costs' ? 'API-Kosten' : section === 'users' ? 'Benutzerverwaltung' : ''}</h2>
         {section === 'ai-costs' && <AiCostsView />}
+        {section === 'users' && <UsersView />}
       </div>
     </div>
   );

@@ -76,9 +76,39 @@ export type MealNutritionColors = {
   dots: { key: keyof NutritionInfo; color: NutrientColor }[];
 };
 
-export function getMealNutritionColors(meal: Meal, perMealTargets: NutritionInfo): MealNutritionColors | null {
+export function getPerMealTargets(targets: NutritionTargets, mealsPerDay: number): NutritionInfo {
+  const mpd = mealsPerDay || 3;
+  return {
+    kcal: Math.round(targets.kcal / mpd),
+    protein: Math.round(targets.protein / mpd),
+    carbs: Math.round(targets.carbs / mpd),
+    fat: Math.round(targets.fat / mpd),
+    fiber: Math.round(targets.fiber / mpd),
+    sugar: Math.round((targets.sugar ?? 25) / mpd),
+  };
+}
+
+export function calculateOptimalMultiplier(nutrition: NutritionInfo, perMealTargets: NutritionInfo): number {
+  const ratios = NUTRITION_KEYS.map(key => {
+    const t = perMealTargets[key];
+    if (t <= 0) return 0;
+    const r = nutrition[key] / t;
+    if (MORE_IS_BETTER.has(key)) return Math.min(r, 1);
+    if (LESS_IS_BETTER.has(key)) return Math.max(r, 1);
+    return r;
+  }).filter(r => r > 0);
+  if (ratios.length === 0) return 1;
+  const sumR = ratios.reduce((a, r) => a + r, 0);
+  const sumR2 = ratios.reduce((a, r) => a + r * r, 0);
+  return sumR2 > 0 ? sumR / sumR2 : 1;
+}
+
+export function getMealNutritionColors(meal: Meal, perMealTargets: NutritionInfo, scale?: number): MealNutritionColors | null {
   if (!meal.nutritionPerServing) return null;
-  const statuses = getNutrientStatuses(meal.nutritionPerServing, perMealTargets);
+  const n = scale && scale !== 1 ? Object.fromEntries(
+    NUTRITION_KEYS.map(k => [k, Math.round(meal.nutritionPerServing![k] * scale)])
+  ) as NutritionInfo : meal.nutritionPerServing;
+  const statuses = getNutrientStatuses(n, perMealTargets);
   return {
     overall: getOverallColor(statuses),
     dots: statuses.map(s => ({ key: s.key, color: s.color })),

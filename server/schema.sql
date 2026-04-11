@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   default_servings INTEGER NOT NULL DEFAULT 2,
   is_admin INTEGER NOT NULL DEFAULT 0,
+  is_approved INTEGER NOT NULL DEFAULT 0,
   nutrition_targets TEXT,
   meals_per_day INTEGER NOT NULL DEFAULT 3,
   nutrition_profile TEXT,

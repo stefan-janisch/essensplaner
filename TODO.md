@@ -69,4 +69,15 @@
 
 - [x] Bei einigen Inputs wird automatisch 1 gesetzt, wenn man die Zahl löscht. Das verhindert jedoch die Neueingabe einer Zahl, da beim Löschen immer sofort 1 kommt.
 
-- [ ] Gesamtbewertung Nährwerrte Rezepte: Sollte auf Idealportion bezogen sein.
+- [x] Gesamtbewertung Nährwerrte Rezepte: Sollte auf Idealportion bezogen sein.
+
+- [ ] Meal Plan Auto-Optimizer
+  Ein Button im Meal Plan, der für alle Einträge eines Tages die Portionsgrößen
+  gleichzeitig optimiert — nicht einzeln pro Rezept, sondern so dass die
+  Tagessumme die Ziele trifft. Rezept A bekommt 0.7×, Rezept B bekommt 1.2×,
+  insgesamt passt der Tag.
+
+
+- [ ] Wochenplan-Scoring als Info-Button mit Popup
+  Gesamtbewertung für die Woche: "Dein Wochenplan deckt 94% deiner Ziele — mit
+  optimierten Portionen wären es 98%". Ein-Klick-Optimierung für den ganzen Plan.

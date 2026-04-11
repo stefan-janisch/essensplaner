@@ -12,7 +12,7 @@ function formatDateDE(dateStr: string): string {
 }
 
 export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) => {
-  const { activePlan, defaultServings, updatePlanServings } = useMealPlan();
+  const { activePlan, defaultServings, updatePlanServings, useOptimalPortions, setUseOptimalPortions } = useMealPlan();
   const isMobile = useIsMobile();
 
   const planServings = activePlan?.defaultServings ?? defaultServings;
@@ -63,6 +63,13 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
           {React.cloneElement(servingsInput, { style: { width: '40px', textAlign: 'center', padding: '3px 4px', fontSize: '13px' } })}
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>P</span>
+          <button
+            className={`pill ${useOptimalPortions ? 'pill-active' : ''}`}
+            onClick={() => setUseOptimalPortions(!useOptimalPortions)}
+            style={{ fontSize: '11px', padding: '2px 6px' }}
+          >
+            🎯
+          </button>
         </div>
       </div>
     );
@@ -89,8 +96,16 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
       </div>
 
       <div className="servings-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-        <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>Standard-Portionen:</label>
+        <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>Personen:</label>
         {React.cloneElement(servingsInput, { style: { width: '56px', textAlign: 'center', padding: '4px 8px' } })}
+        <button
+          className={`pill ${useOptimalPortions ? 'pill-active' : ''}`}
+          onClick={() => setUseOptimalPortions(!useOptimalPortions)}
+          title="Optimale Portionsgrößen beim Hinzufügen verwenden"
+          style={{ fontSize: '12px', padding: '3px 8px', whiteSpace: 'nowrap' }}
+        >
+          🎯 Optimal
+        </button>
       </div>
     </div>
   );

@@ -1,21 +1,16 @@
 import { useMealPlan } from '../context/MealPlanContext';
-import { getMealNutritionColors, COLOR_HEX } from '../utils/nutritionColors';
+import { getMealNutritionColors, COLOR_HEX, getPerMealTargets, calculateOptimalMultiplier } from '../utils/nutritionColors';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
-import type { Meal, NutritionInfo } from '../types/index.js';
+import type { Meal } from '../types/index.js';
 
 export function useRecipeNutritionColors(meal: Meal) {
   const { nutritionTargets, mealsPerDay } = useMealPlan();
   const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
-  const mpd = mealsPerDay || 3;
-  const perMealTargets: NutritionInfo = {
-    kcal: Math.round(targets.kcal / mpd),
-    protein: Math.round(targets.protein / mpd),
-    carbs: Math.round(targets.carbs / mpd),
-    fat: Math.round(targets.fat / mpd),
-    fiber: Math.round(targets.fiber / mpd),
-    sugar: Math.round((targets.sugar ?? 25) / mpd),
-  };
-  return getMealNutritionColors(meal, perMealTargets);
+  const perMeal = getPerMealTargets(targets, mealsPerDay);
+  if (!meal.nutritionPerServing) return null;
+  // Evaluate at optimal portion size, not 1×
+  const M = calculateOptimalMultiplier(meal.nutritionPerServing, perMeal);
+  return getMealNutritionColors(meal, perMeal, M);
 }
 
 export function RecipeNutritionDots({ meal }: { meal: Meal }) {

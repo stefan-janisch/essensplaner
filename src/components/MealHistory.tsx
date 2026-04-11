@@ -6,7 +6,9 @@ import { getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
 import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
 import type { SortBy, RatingComparator } from '../utils/mealFilters';
-import type { Meal, MealType, MealPlanEntry } from '../types/index.js';
+import type { Meal, MealType, MealPlanEntry, NutritionInfo } from '../types/index.js';
+import { calculateOptimalMultiplier, getPerMealTargets, NUTRITION_KEYS } from '../utils/nutritionColors';
+import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 
@@ -97,6 +99,7 @@ interface MealHistoryProps {
   tapMode?: { date: string; mealType: MealType } | null;
   onTapSelect?: (mealId: string) => void;
   onCancelTap?: () => void;
+  nutritionGap?: NutritionInfo | null;
 }
 
 const MEAL_TYPE_LABELS: Record<string, string> = {
@@ -108,8 +111,8 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
   misc: 'Sonstiges',
 };
 
-export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, onCancelTap }) => {
-  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal } = useMealPlan();
+export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, onCancelTap, nutritionGap }) => {
+  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal, nutritionTargets, mealsPerDay } = useMealPlan();
   const [searchQuery, setSearchQuery] = useState('');
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -125,6 +128,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const [showCreate, setShowCreate] = useState(false);
   const [showNutritionIndicators, setShowNutritionIndicators] = useState(true);
   const [smartMode, setSmartMode] = useState(false);
+  const [nutriFitMode, setNutriFitMode] = useState(false);
   const [randomIds, setRandomIds] = useState<string[] | null>(null);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
@@ -159,10 +163,33 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
     return computeAdditionalIngredients(candidates, planEntries, state.meals);
   }, [smartMode, filteredMeals, planEntries, planMealIds, state.meals]);
 
+  // Nutrifit scoring: how well does a meal fill the day's nutrition gap?
+  const nutriFitScores = useMemo(() => {
+    if (!nutriFitMode || !nutritionGap) return null;
+    const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
+    const perMeal = getPerMealTargets(targets, mealsPerDay);
+    const scores = new Map<string, number>();
+    for (const meal of state.meals) {
+      if (!meal.nutritionPerServing) { scores.set(meal.id, Infinity); continue; }
+      const M = calculateOptimalMultiplier(meal.nutritionPerServing, perMeal);
+      let totalDev = 0;
+      for (const key of NUTRITION_KEYS) {
+        const scaled = meal.nutritionPerServing[key] * M;
+        const gapVal = nutritionGap[key];
+        const normalizer = Math.max(gapVal, perMeal[key], 1);
+        totalDev += Math.abs(scaled - gapVal) / normalizer;
+      }
+      scores.set(meal.id, totalDev);
+    }
+    return scores;
+  }, [nutriFitMode, nutritionGap, state.meals, nutritionTargets, mealsPerDay]);
+
   const displayMeals = useMemo(() => {
     if (randomIds) {
-      // Show only the randomly picked meals, in their random order
       return randomIds.map(id => state.meals.find(m => m.id === id)).filter(Boolean) as Meal[];
+    }
+    if (nutriFitMode && nutriFitScores) {
+      return [...filteredMeals].sort((a, b) => (nutriFitScores.get(a.id) ?? Infinity) - (nutriFitScores.get(b.id) ?? Infinity));
     }
     if (!smartMode || !additionalIngredientsMap) return sortedMeals;
     return filteredMeals
@@ -173,7 +200,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         if (aExtra !== bExtra) return aExtra - bExtra;
         return a.name.localeCompare(b.name);
       });
-  }, [randomIds, smartMode, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals]);
+  }, [randomIds, smartMode, nutriFitMode, nutriFitScores, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals]);
 
   const pickRandom = useCallback(() => {
     const pool = filteredMeals.length > 3 ? filteredMeals : state.meals;
@@ -237,6 +264,15 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         >
           🎲 Zufällig
         </button>
+        {nutritionGap && (
+          <button
+            className={`pill ${nutriFitMode ? 'pill-active' : ''}`}
+            onClick={() => { setNutriFitMode(!nutriFitMode); setSmartMode(false); setRandomIds(null); }}
+            style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
+          >
+            🎯 Nährstoff-Fit
+          </button>
+        )}
       </div>
 
       <input
@@ -405,6 +441,26 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                         : `+${info.extra} ${info.extra === 1 ? 'Zutat' : 'Zutaten'} · ${info.extraNames.slice(0, 3).join(', ')}${info.extraNames.length > 3 ? ` …` : ''}`}
                     </div>
                   )}
+                  {nutriFitMode && nutritionGap && meal.nutritionPerServing && (() => {
+                    const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
+                    const perMeal = getPerMealTargets(targets, mealsPerDay);
+                    const M = calculateOptimalMultiplier(meal.nutritionPerServing, perMeal);
+                    const labels: Record<string, string> = { kcal: 'kcal', protein: 'P', carbs: 'K', fat: 'F', fiber: 'B' };
+                    const parts: string[] = [];
+                    for (const key of NUTRITION_KEYS) {
+                      if (key === 'sugar') continue;
+                      const scaled = Math.round(meal.nutritionPerServing[key] * M);
+                      const target = perMeal[key];
+                      if (target <= 0) continue;
+                      const pct = Math.round((scaled / target) * 100);
+                      parts.push(`${labels[key]} ${pct}%`);
+                    }
+                    return (
+                      <div style={{ fontSize: '11px', marginBottom: '3px', padding: '2px 8px', color: 'var(--text-muted)' }}>
+                        🎯 {M.toFixed(1)}× · {parts.join(' · ')}
+                      </div>
+                    );
+                  })()}
                   {tapMode && onTapSelect ? (
                     <div onClick={() => onTapSelect(meal.id)} style={{ cursor: 'pointer' }}>
                       <RecipeCard

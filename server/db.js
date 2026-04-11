@@ -279,4 +279,26 @@ if (version < 13) {
   console.log('✓ Migration v13 complete');
 }
 
+if (version < 14) {
+  console.log('Running migration v14: optimal portions toggle...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('use_optimal_portions')) {
+    db.exec('ALTER TABLE users ADD COLUMN use_optimal_portions INTEGER DEFAULT 0');
+  }
+  db.pragma('user_version = 14');
+  console.log('✓ Migration v14 complete');
+}
+
+if (version < 15) {
+  console.log('Running migration v15: user approval...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('is_approved')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 0');
+  }
+  // Auto-approve all existing users
+  db.exec('UPDATE users SET is_approved = 1');
+  db.pragma('user_version = 15');
+  console.log('✓ Migration v15 complete');
+}
+
 export default db;

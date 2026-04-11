@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
 import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo, NutritionProfile, DisabledSlot } from '../types/index.js';
+import { calculateOptimalMultiplier, getPerMealTargets } from '../utils/nutritionColors';
+import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 
 interface MealPlanContextType {
   state: MealPlanState;
@@ -17,6 +19,8 @@ interface MealPlanContextType {
   setMealsPerDay: (n: number) => Promise<void>;
   nutritionProfile: NutritionProfile | null;
   setNutritionProfile: (profile: NutritionProfile | null) => Promise<void>;
+  useOptimalPortions: boolean;
+  setUseOptimalPortions: (v: boolean) => Promise<void>;
 
   // Plan management
   createPlan: (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => Promise<number>;
@@ -76,6 +80,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [nutritionTargets, setNutritionTargetsLocal] = useState<NutritionTargets | null>(null);
   const [mealsPerDay, setMealsPerDayLocal] = useState(3);
   const [nutritionProfile, setNutritionProfileLocal] = useState<NutritionProfile | null>(null);
+  const [useOptimalPortions, setUseOptimalPortionsLocal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,12 +91,13 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         const [meals, plans, settings] = await Promise.all([
           api.get<Meal[]>('/api/meals'),
           api.get<MealPlan[]>('/api/plans'),
-          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number; nutritionProfile: NutritionProfile | null }>('/api/settings'),
+          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number; nutritionProfile: NutritionProfile | null; useOptimalPortions: boolean }>('/api/settings'),
         ]);
         setDefaultServingsLocal(settings.defaultServings);
         setNutritionTargetsLocal(settings.nutritionTargets);
         if (settings.mealsPerDay) setMealsPerDayLocal(settings.mealsPerDay);
         if (settings.nutritionProfile) setNutritionProfileLocal(settings.nutritionProfile);
+        setUseOptimalPortionsLocal(!!settings.useOptimalPortions);
 
         // Check URL hash for a specific plan ID
         const hashMatch = window.location.hash.match(/^#(?:planer|menuplan)\/(\d+)/);
@@ -166,6 +172,15 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       await api.put('/api/settings', { nutritionProfile: profile });
     } catch {
       console.error('Failed to save nutrition profile');
+    }
+  }, []);
+
+  const setUseOptimalPortions = useCallback(async (v: boolean) => {
+    setUseOptimalPortionsLocal(v);
+    try {
+      await api.put('/api/settings', { useOptimalPortions: v });
+    } catch {
+      console.error('Failed to save optimal portions setting');
     }
   }, []);
 
@@ -330,8 +345,8 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   // --- Meal CRUD ---
 
   // Fire-and-forget nutrition estimation, updates meal in state when done
-  const estimateNutritionInBackground = useCallback((mealId: string) => {
-    api.post<{ nutritionPerServing: NutritionInfo; tagsUpdated: string[] | null }>('/api/estimate-nutrition', { mealId })
+  const estimateNutritionInBackground = useCallback((mealId: string, force?: boolean) => {
+    api.post<{ nutritionPerServing: NutritionInfo; tagsUpdated: string[] | null }>('/api/estimate-nutrition', { mealId, force })
       .then(result => {
         setState(prev => ({
           ...prev,
@@ -384,13 +399,16 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     );
     setState(s => ({
       ...s,
-      meals: s.meals.map(m => m.id === mealId ? { ...m, ...defined, id: mealId } : m),
+      meals: s.meals.map(m => m.id === mealId ? {
+        ...m, ...defined, id: mealId,
+        ...(hadIngredientChange ? { nutritionPerServing: undefined } : {}),
+      } : m),
     }));
     try {
       await api.put<Meal>(`/api/meals/${mealId}`, updatedMeal);
       // Re-estimate nutrition if ingredients changed
       if (hadIngredientChange && updatedMeal.ingredients && updatedMeal.ingredients.length > 0) {
-        estimateNutritionInBackground(mealId);
+        estimateNutritionInBackground(mealId, true);
       }
     } catch {
       setState(s => ({ ...s, meals: prev }));
@@ -473,7 +491,18 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     // Use plan-specific servings if set, otherwise user default
     const plan = state.plans.find(p => p.id === state.activePlanId);
-    const servings = plan?.defaultServings ?? defaultServings;
+    let servings = plan?.defaultServings ?? defaultServings;
+
+    // Apply optimal multiplier if enabled
+    if (useOptimalPortions) {
+      const meal = state.meals.find(m => m.id === mealId);
+      if (meal?.nutritionPerServing) {
+        const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
+        const perMeal = getPerMealTargets(targets, mealsPerDay);
+        const M = calculateOptimalMultiplier(meal.nutritionPerServing, perMeal);
+        servings = Math.round(servings * M * 10) / 10;
+      }
+    }
 
     // Clear disabled slot if present
     const isDisabled = plan?.disabledSlots?.some(s => s.date === date && s.mealType === mealType);
@@ -505,7 +534,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       console.error('Add meal to slot failed:', err);
       updateActivePlanEntries(entries => entries.filter(e => e.id !== tempId));
     });
-  }, [state.activePlanId, defaultServings, updateActivePlanEntries]);
+  }, [state.activePlanId, state.plans, state.meals, defaultServings, useOptimalPortions, nutritionTargets, mealsPerDay, updateActivePlanEntries]);
 
   const removeEntry = useCallback((entryId: number) => {
     if (!state.activePlanId) return;
@@ -707,6 +736,8 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         setMealsPerDay,
         nutritionProfile,
         setNutritionProfile,
+        useOptimalPortions,
+        setUseOptimalPortions,
         createPlan,
         selectPlan,
         deletePlan,

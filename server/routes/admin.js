@@ -132,4 +132,53 @@ router.get('/ai-usage/summary', (_req, res) => {
   }
 });
 
+// GET /api/admin/users — list all users
+router.get('/users', (req, res) => {
+  try {
+    const users = db.prepare(`
+      SELECT id, email, is_admin, is_approved, created_at
+      FROM users ORDER BY created_at DESC
+    `).all();
+    res.json({ users });
+  } catch (err) {
+    console.error('Admin users error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden der Benutzerliste' });
+  }
+});
+
+// PATCH /api/admin/users/:id/approve — approve a user
+router.patch('/users/:id/approve', (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+    }
+    db.prepare('UPDATE users SET is_approved = 1 WHERE id = ?').run(userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Admin approve error:', err);
+    res.status(500).json({ error: 'Fehler beim Freischalten des Benutzers' });
+  }
+});
+
+// DELETE /api/admin/users/:id — delete a user
+router.delete('/users/:id', (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (userId === req.userId) {
+      return res.status(400).json({ error: 'Du kannst dich nicht selbst löschen' });
+    }
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+    }
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Admin delete user error:', err);
+    res.status(500).json({ error: 'Fehler beim Löschen des Benutzers' });
+  }
+});
+
 export default router;

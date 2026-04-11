@@ -1,5 +1,5 @@
 import type { MealPlanEntry, Meal, NutritionInfo, NutritionTargets } from '../types/index.js';
-import { NUTRITION_KEYS, getNutrientStatuses, getOverallColor } from './nutritionColors';
+import { NUTRITION_KEYS, getNutrientStatuses, getOverallColor, LESS_IS_BETTER } from './nutritionColors';
 import type { NutrientStatus, NutrientColor } from './nutritionColors';
 
 export type { NutrientStatus };
@@ -45,4 +45,25 @@ export function calculateDailyNutrition(
   const overallColor = getOverallColor(details);
 
   return { totals, details, overallColor, filledMeals, totalSlots: 3 };
+}
+
+/** Calculate remaining nutrition needed for a day (gap = target - current, floored at 0) */
+export function calculateNutritionGap(
+  date: string,
+  entries: MealPlanEntry[],
+  meals: Meal[],
+  targets: NutritionTargets,
+  planDefaultServings: number,
+): NutritionInfo {
+  const result = calculateDailyNutrition(date, entries, meals, targets, planDefaultServings);
+  const gap: NutritionInfo = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0 };
+  for (const key of NUTRITION_KEYS) {
+    if (LESS_IS_BETTER.has(key)) {
+      // For sugar: gap = how much room is left (target - actual), floored at 0
+      gap[key] = Math.max(0, targets[key] - result.totals[key]);
+    } else {
+      gap[key] = Math.max(0, targets[key] - result.totals[key]);
+    }
+  }
+  return gap;
 }

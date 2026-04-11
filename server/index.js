@@ -161,6 +161,63 @@ function logAiUsage(userId, endpoint, completion) {
   }
 }
 
+/**
+ * Extract a Recipe object from JSON-LD structured data in HTML.
+ * Returns the first @type:Recipe found, or null.
+ */
+function extractJsonLdRecipe(html) {
+  const regex = /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(match[1]);
+      // Check if it's directly a Recipe
+      if (data['@type'] === 'Recipe') return data;
+      // Check @graph array (common with Yoast SEO)
+      if (Array.isArray(data['@graph'])) {
+        const recipe = data['@graph'].find(item => item['@type'] === 'Recipe');
+        if (recipe) return recipe;
+      }
+      // Check if it's an array of objects
+      if (Array.isArray(data)) {
+        const recipe = data.find(item => item['@type'] === 'Recipe');
+        if (recipe) return recipe;
+      }
+    } catch {
+      // Invalid JSON, skip this block
+    }
+  }
+  return null;
+}
+
+/**
+ * Strip HTML boilerplate (scripts, styles, SVGs, nav, footer, etc.)
+ * to reduce page size before sending to the AI for recipe extraction.
+ */
+function stripHtmlBoilerplate(html) {
+  return html
+    // Remove script tags and content
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    // Remove style tags and content
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    // Remove SVG tags and content
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    // Remove nav tags
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    // Remove footer tags
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    // Remove header tags (site header, not h1-h6)
+    .replace(/<header[\s\S]*?<\/header>/gi, '')
+    // Remove HTML comments
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Remove noscript tags
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+    // Remove iframe tags
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    // Collapse whitespace
+    .replace(/\s{2,}/g, ' ');
+}
+
 // Parse recipe from URL endpoint
 app.post('/api/parse-recipe-url', requireAuth, aiLimiter, async (req, res) => {
   try {
@@ -195,6 +252,86 @@ app.post('/api/parse-recipe-url', requireAuth, aiLimiter, async (req, res) => {
     }
 
     const htmlContent = await webResponse.text();
+
+    // Try to extract JSON-LD Recipe data directly (many recipe sites include this)
+    const jsonLdRecipe = extractJsonLdRecipe(htmlContent);
+    if (jsonLdRecipe) {
+      console.log('Found JSON-LD Recipe data, extracting directly...');
+      const name = String(jsonLdRecipe.name || '').slice(0, 500);
+
+      // Build ingredientText from recipeIngredient array
+      const ingredientText = Array.isArray(jsonLdRecipe.recipeIngredient)
+        ? jsonLdRecipe.recipeIngredient.join('\n').slice(0, 10000)
+        : '';
+
+      // Build recipeText from recipeInstructions
+      let recipeText = '';
+      if (Array.isArray(jsonLdRecipe.recipeInstructions)) {
+        recipeText = jsonLdRecipe.recipeInstructions
+          .map((step, i) => {
+            const text = typeof step === 'string' ? step : (step.text || '');
+            return step.name ? `${i + 1}. ${step.name}: ${text}` : `${i + 1}. ${text}`;
+          })
+          .join('\n\n')
+          .slice(0, 20000);
+      } else if (typeof jsonLdRecipe.recipeInstructions === 'string') {
+        recipeText = jsonLdRecipe.recipeInstructions.slice(0, 20000);
+      }
+
+      if (!ingredientText) {
+        console.log('JSON-LD found but no ingredients, falling back to AI parsing...');
+      } else {
+        // Parse servings from recipeYield
+        let servings = 2;
+        if (jsonLdRecipe.recipeYield) {
+          const yieldVal = Array.isArray(jsonLdRecipe.recipeYield) ? jsonLdRecipe.recipeYield[0] : jsonLdRecipe.recipeYield;
+          const parsed = parseInt(String(yieldVal), 10);
+          if (parsed > 0 && parsed <= 100) servings = parsed;
+        }
+
+        // Extract photo URL
+        let photoUrl = null;
+        const imgVal = jsonLdRecipe.image;
+        const imgUrl = Array.isArray(imgVal) ? imgVal[0] : (typeof imgVal === 'string' ? imgVal : imgVal?.url || null);
+        if (imgUrl) {
+          try { validateExternalUrl(imgUrl); photoUrl = imgUrl; } catch { photoUrl = null; }
+        }
+
+        // Parse times (ISO 8601 duration PT__M)
+        const parseISOMinutes = (dur) => {
+          if (!dur) return null;
+          const m = /PT(?:(\d+)H)?(?:(\d+)M)?/.exec(String(dur));
+          if (!m) return null;
+          return (parseInt(m[1] || '0', 10) * 60) + parseInt(m[2] || '0', 10) || null;
+        };
+        const prepTime = parseISOMinutes(jsonLdRecipe.prepTime);
+        const totalTime = parseISOMinutes(jsonLdRecipe.totalTime) || parseISOMinutes(jsonLdRecipe.cookTime);
+
+        // For category and tags, we still need AI — but we have the essential data
+        // Use simple heuristics from JSON-LD
+        const allowedCategories = ['hauptgericht', 'beilage', 'vorspeise', 'suppe', 'salat', 'dessert', 'snack', 'fruehstueck', 'getraenk', 'brot_gebaeck', 'sauce_dip', 'sonstiges'];
+        const catMap = { 'hauptgericht': 'hauptgericht', 'main': 'hauptgericht', 'hauptgang': 'hauptgericht', 'mittagessen': 'hauptgericht', 'abendessen': 'hauptgericht', 'beilage': 'beilage', 'side': 'beilage', 'vorspeise': 'vorspeise', 'starter': 'vorspeise', 'appetizer': 'vorspeise', 'suppe': 'suppe', 'soup': 'suppe', 'salat': 'salat', 'salad': 'salat', 'dessert': 'dessert', 'snack': 'snack', 'frühstück': 'fruehstueck', 'breakfast': 'fruehstueck', 'getränk': 'getraenk', 'drink': 'getraenk', 'brot': 'brot_gebaeck', 'bread': 'brot_gebaeck', 'sauce': 'sauce_dip', 'dip': 'sauce_dip' };
+        let category = null;
+        const jsonLdCats = [].concat(jsonLdRecipe.recipeCategory || []).map(c => c.toLowerCase());
+        for (const c of jsonLdCats) {
+          if (allowedCategories.includes(c)) { category = c; break; }
+          if (catMap[c]) { category = catMap[c]; break; }
+        }
+
+        // Build tags from JSON-LD cuisine/keywords
+        const tags = [];
+        const cuisines = [].concat(jsonLdRecipe.recipeCuisine || []);
+        for (const c of cuisines) {
+          tags.push(`küche:${c.toLowerCase()}`);
+        }
+
+        console.log(`✓ Parsed recipe from JSON-LD: ${name} for ${servings} servings${photoUrl ? ' (with photo)' : ''} [${tags.length} tags]`);
+        return res.json({ name, ingredientText, recipeText, servings, photoUrl, category, tags, prepTime, totalTime });
+      }
+    }
+
+    // Strip HTML boilerplate to get more useful content within the truncation limit
+    const strippedHtml = stripHtmlBoilerplate(htmlContent);
 
     console.log('Parsing recipe with OpenAI...');
 
@@ -242,7 +379,7 @@ ${existingTagsList.join(', ')}` : ''}`
         },
         {
           role: 'user',
-          content: `Hier ist der HTML-Inhalt der Rezeptseite:\n\n${sanitizeLlmInput(htmlContent, 50000)}`
+          content: `Hier ist der HTML-Inhalt der Rezeptseite:\n\n${sanitizeLlmInput(strippedHtml, 50000)}`
         }
       ],
     });
@@ -737,7 +874,7 @@ REGELN:
 // Estimate nutrition for a meal
 app.post('/api/estimate-nutrition', requireAuth, aiLimiter, async (req, res) => {
   try {
-    const { mealId } = req.body;
+    const { mealId, force } = req.body;
     if (!mealId || typeof mealId !== 'string') {
       return res.status(400).json({ error: 'mealId ist erforderlich' });
     }
@@ -748,8 +885,8 @@ app.post('/api/estimate-nutrition', requireAuth, aiLimiter, async (req, res) => 
       return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
     }
 
-    // Cache check — return immediately if already estimated
-    if (meal.nutrition_per_serving) {
+    // Cache check — return immediately if already estimated (unless force recalculation)
+    if (meal.nutrition_per_serving && !force) {
       return res.json({ nutritionPerServing: JSON.parse(meal.nutrition_per_serving), cached: true });
     }
 

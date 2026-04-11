@@ -530,9 +530,9 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
             <div key={index} style={{ display: 'flex', gap: '3px', marginBottom: '4px' }}>
               <input className="input" type="text" placeholder="Zutat" value={ing.name} onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
                 style={{ flex: 2, ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-              <input className="input" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
+              <input className="input ing-amount" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
                 style={{ flex: 0, width: '65px', minWidth: '65px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-              <input className="input" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
+              <input className="input ing-unit" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
                 onFocus={(e) => { const el = e.target; setTimeout(() => el.select()); }}
                 style={{ flex: 0, width: '55px', minWidth: '55px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)', fontWeight: 'bold' } : {}) }} />
               {ingredients.length > 1 && (
@@ -553,12 +553,12 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
                 else handleShoppingIngredientChange(index, 'name', e.target.value);
               }}
                 style={{ flex: 2, ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-              <input className="input" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => {
+              <input className="input ing-amount" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => {
                 if (shoppingIngredients.length === 0) setShoppingIngredients([{ name: '', amount: parseFloat(e.target.value) || 0, unit: '' }]);
                 else handleShoppingIngredientChange(index, 'amount', parseFloat(e.target.value) || 0);
               }}
                 style={{ flex: 0, width: '65px', minWidth: '65px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-              <input className="input" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => {
+              <input className="input ing-unit" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => {
                 if (shoppingIngredients.length === 0) setShoppingIngredients([{ name: '', amount: 0, unit: e.target.value }]);
                 else handleShoppingIngredientChange(index, 'unit', e.target.value);
               }}

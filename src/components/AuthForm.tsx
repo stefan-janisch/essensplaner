@@ -8,6 +8,7 @@ export const AuthForm: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +19,8 @@ export const AuthForm: React.FC = () => {
       if (mode === 'login') {
         await login(email, password);
       } else {
-        await register(email, password);
+        const message = await register(email, password);
+        setSuccessMessage(message);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ein Fehler ist aufgetreten');
@@ -47,52 +49,64 @@ export const AuthForm: React.FC = () => {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="email">E-Mail</label>
-            <input
-              id="email"
-              className="input"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
+        {successMessage ? (
+          <div className="auth-success">
+            <p>{successMessage}</p>
+            <button
+              className="btn btn-primary"
+              onClick={() => { setSuccessMessage(''); setMode('login'); setError(''); }}
+            >
+              Zurück zur Anmeldung
+            </button>
           </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label htmlFor="email">E-Mail</label>
+              <input
+                id="email"
+                className="input"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
 
-          <div className="form-group">
-            <label htmlFor="password">Passwort</label>
-            <input
-              id="password"
-              className="input"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={8}
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            />
-            {mode === 'register' && (
-              <small style={{ color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                Mindestens 8 Zeichen
-              </small>
+            <div className="form-group">
+              <label htmlFor="password">Passwort</label>
+              <input
+                id="password"
+                className="input"
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                minLength={8}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              />
+              {mode === 'register' && (
+                <small style={{ color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Mindestens 8 Zeichen
+                </small>
+              )}
+            </div>
+
+            {error && (
+              <div className="auth-error">{error}</div>
             )}
-          </div>
 
-          {error && (
-            <div className="auth-error">{error}</div>
-          )}
-
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg"
-            disabled={loading}
-            style={{ width: '100%' }}
-          >
-            {loading ? '...' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg"
+              disabled={loading}
+              style={{ width: '100%' }}
+            >
+              {loading ? '...' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

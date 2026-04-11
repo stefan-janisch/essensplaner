@@ -3,7 +3,7 @@ import { api } from '../api/client.js';
 import { useMealPlan } from '../context/MealPlanContext';
 import type { Meal, NutritionInfo } from '../types/index.js';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
-import { getNutrientColor, COLOR_HEX, NUTRITION_LABELS, MORE_IS_BETTER, LESS_IS_BETTER } from '../utils/nutritionColors';
+import { getNutrientColor, COLOR_HEX, NUTRITION_LABELS, calculateOptimalMultiplier, getPerMealTargets } from '../utils/nutritionColors';
 
 interface NutritionTableProps {
   meal: Meal;
@@ -27,14 +27,7 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
 
   const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
   const mpd = mealsPerDay || 3;
-  const perMealTargets: NutritionInfo = {
-    kcal: Math.round(targets.kcal / mpd),
-    protein: Math.round(targets.protein / mpd),
-    carbs: Math.round(targets.carbs / mpd),
-    fat: Math.round(targets.fat / mpd),
-    fiber: Math.round(targets.fiber / mpd),
-    sugar: Math.round((targets.sugar ?? 25) / mpd),
-  };
+  const perMealTargets = getPerMealTargets(targets, mpd);
 
   const handleEstimate = async () => {
     setLoading(true);
@@ -146,23 +139,10 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
 
       {/* Optimal serving recommendation */}
       {(() => {
-        const ratios = DISPLAY_KEYS.map(({ key }) => {
-          const t = perMealTargets[key];
-          if (t <= 0) return 0;
-          const r = nutrition[key] / t;
-          // For "more is better" nutrients, cap at 1 so excess doesn't pull M down
-          if (MORE_IS_BETTER.has(key)) return Math.min(r, 1);
-          // For "less is better" nutrients, cap at 1 so being under target doesn't push M up
-          if (LESS_IS_BETTER.has(key)) return Math.max(r, 1);
-          return r;
-        }).filter(r => r > 0);
-        if (ratios.length === 0) return null;
-        const sumR = ratios.reduce((a, r) => a + r, 0);
-        const sumR2 = ratios.reduce((a, r) => a + r * r, 0);
-        const M = sumR2 > 0 ? sumR / sumR2 : 1;
+        const M = calculateOptimalMultiplier(nutrition, perMealTargets);
         if (Math.abs(M - 1) <= 0.05) return null;
         const scaledKcal = Math.round(nutrition.kcal * M);
-        const mPct = Math.round(M * 100 / 5) * 5; // snap to 5% steps
+        const mPct = Math.round(M * 100 / 5) * 5;
         return (
           <div className="nutrition-recommendation" onClick={() => setPortionScale(Math.max(50, Math.min(200, mPct)))} style={{ cursor: 'pointer' }}>
             Empfohlene Portionsgröße: <strong>{M.toFixed(1)}×</strong> ({scaledKcal} kcal) <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>— klicken zum Anwenden</span>
