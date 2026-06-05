@@ -161,6 +161,12 @@ export type DisabledSlot = {
   mealType: MealType;
 }
 
+export type SlotNote = {
+  date: string;
+  mealType: MealType;
+  note: string;
+}
+
 export type MealPlan = {
   id: number;
   name: string;
@@ -172,6 +178,8 @@ export type MealPlan = {
   entries: MealPlanEntry[];
   extras: ExtraItem[];
   disabledSlots?: DisabledSlot[];
+  slotNotes?: SlotNote[];
+  excludedIngredients?: string[];
   courses?: MenuCourse[];
   createdAt?: string;
   isOwner?: boolean;

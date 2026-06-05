@@ -132,6 +132,24 @@ CREATE TABLE IF NOT EXISTS disabled_slots (
 );
 CREATE INDEX IF NOT EXISTS idx_disabled_slots_plan ON disabled_slots(plan_id);
 
+CREATE TABLE IF NOT EXISTS plan_slot_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner')),
+  note TEXT NOT NULL,
+  UNIQUE(plan_id, date, meal_type)
+);
+CREATE INDEX IF NOT EXISTS idx_slot_notes_plan ON plan_slot_notes(plan_id);
+
+CREATE TABLE IF NOT EXISTS excluded_shopping_ingredients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  ingredient_name TEXT NOT NULL,
+  UNIQUE(plan_id, ingredient_name)
+);
+CREATE INDEX IF NOT EXISTS idx_excluded_plan ON excluded_shopping_ingredients(plan_id);
+
 CREATE TABLE IF NOT EXISTS ingredient_conversions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ingredient_name TEXT NOT NULL,

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api/client.js';
-import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo, NutritionProfile, DisabledSlot } from '../types/index.js';
+import type { Meal, MealPlan, MealPlanEntry, MealPlanState, MealType, ExtraItem, MenuCourse, PlanType, NutritionTargets, NutritionInfo, NutritionProfile, DisabledSlot, SlotNote } from '../types/index.js';
 import { calculateOptimalMultiplier, getPerMealTargets } from '../utils/nutritionColors';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 
@@ -42,6 +42,7 @@ interface MealPlanContextType {
 
   // Import/Export
   importMeals: (recipes: Omit<Meal, 'id'>[]) => Promise<{ imported: Meal[]; skipped: string[] }>;
+  duplicateMeal: (mealId: string) => Promise<Meal | null>;
 
   // Photo management
   uploadMealPhoto: (mealId: string, file: File) => Promise<string>;
@@ -55,6 +56,8 @@ interface MealPlanContextType {
   updateEntryServings: (entryId: number, servings: number) => void;
   moveEntry: (entryId: number, toDate: string, toMealType: MealType) => void;
   toggleSlotDisabled: (date: string, mealType: MealType) => void;
+  setSlotNote: (date: string, mealType: MealType, note: string) => void;
+  toggleIngredientExcluded: (name: string) => void;
   renameIngredientInAllMeals: (oldName: string, newName: string) => void;
 
   // Extras (free-form items)
@@ -342,6 +345,28 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }));
   }, []);
 
+  const updateActivePlanSlotNotes = useCallback((updater: (notes: SlotNote[]) => SlotNote[]) => {
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p =>
+        p.id === prev.activePlanId
+          ? { ...p, slotNotes: updater(p.slotNotes || []) }
+          : p
+      ),
+    }));
+  }, []);
+
+  const updateActivePlanExcludedIngredients = useCallback((updater: (excluded: string[]) => string[]) => {
+    setState(prev => ({
+      ...prev,
+      plans: prev.plans.map(p =>
+        p.id === prev.activePlanId
+          ? { ...p, excludedIngredients: updater(p.excludedIngredients || []) }
+          : p
+      ),
+    }));
+  }, []);
+
   // --- Meal CRUD ---
 
   // Fire-and-forget nutrition estimation, updates meal in state when done
@@ -484,6 +509,19 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, [updateMealPhotoInState]);
 
+  const duplicateMeal = useCallback(async (mealId: string): Promise<Meal | null> => {
+    const meal = state.meals.find(m => m.id === mealId);
+    if (!meal) return null;
+    const { id: _, photoUrl, ...rest } = meal;
+    const copy = { ...rest, name: `${meal.name} (Kopie)` };
+    const newMeal = await addMeal(copy);
+    if (newMeal && photoUrl) {
+      const fullUrl = `${window.location.origin}${photoUrl}`;
+      await downloadMealPhotoFromUrl(newMeal.id, fullUrl);
+    }
+    return newMeal;
+  }, [state.meals, addMeal, downloadMealPhotoFromUrl]);
+
   // --- Entry operations (multi-meal slots) ---
 
   const addMealToSlot = useCallback((date: string, mealType: MealType, mealId: string) => {
@@ -599,6 +637,50 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       console.error('Toggle disabled slot failed:', err);
     });
   }, [state.activePlanId, activePlan, updateActivePlanDisabledSlots]);
+
+  // --- Slot notes (per date + mealType comment) ---
+
+  const setSlotNote = useCallback((date: string, mealType: MealType, note: string) => {
+    if (!state.activePlanId) return;
+    const trimmed = note.trim();
+
+    // Optimistic update: set/replace or remove when empty
+    if (!trimmed) {
+      updateActivePlanSlotNotes(notes => notes.filter(n => !(n.date === date && n.mealType === mealType)));
+    } else {
+      updateActivePlanSlotNotes(notes => {
+        const others = notes.filter(n => !(n.date === date && n.mealType === mealType));
+        return [...others, { date, mealType, note: trimmed }];
+      });
+    }
+
+    api.post(`/api/plans/${state.activePlanId}/slot-notes`, { date, mealType, note: trimmed }).catch(err => {
+      console.error('Set slot note failed:', err);
+    });
+  }, [state.activePlanId, updateActivePlanSlotNotes]);
+
+  // --- Excluded shopping ingredients (per-plan) ---
+
+  const toggleIngredientExcluded = useCallback((name: string) => {
+    if (!state.activePlanId) return;
+    const normalized = name.toLowerCase().trim();
+    if (!normalized) return;
+
+    const current = activePlan?.excludedIngredients || [];
+    const isExcluded = current.includes(normalized);
+
+    updateActivePlanExcludedIngredients(excluded =>
+      isExcluded ? excluded.filter(n => n !== normalized) : [...excluded, normalized]
+    );
+
+    api.post(`/api/plans/${state.activePlanId}/excluded-ingredients`, { name: normalized }).catch(err => {
+      console.error('Toggle excluded ingredient failed:', err);
+      // Revert
+      updateActivePlanExcludedIngredients(excluded =>
+        isExcluded ? [...excluded, normalized] : excluded.filter(n => n !== normalized)
+      );
+    });
+  }, [state.activePlanId, activePlan, updateActivePlanExcludedIngredients]);
 
   // --- Extras (free-form items) ---
 
@@ -750,6 +832,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         refreshPlans,
         addMeal,
         importMeals,
+        duplicateMeal,
         updateMeal,
         deleteMeal,
         toggleMealStar,
@@ -762,6 +845,8 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         updateEntryServings,
         moveEntry,
         toggleSlotDisabled,
+        setSlotNote,
+        toggleIngredientExcluded,
         renameIngredientInAllMeals,
         addExtra,
         updateExtra,

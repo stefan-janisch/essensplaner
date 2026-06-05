@@ -5,10 +5,12 @@ import type { Meal, Ingredient } from '../types/index.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-async function parseRecipeFromURL(url: string, existingTags: string[]): Promise<{
+type ParsedRecipe = {
   name: string; ingredientText: string; recipeText: string; servings: number;
-  photoUrl?: string; category?: string; tags?: string[]; prepTime?: number; totalTime?: number;
-}> {
+  photoUrl?: string | null; category?: string | null; tags?: string[]; prepTime?: number | null; totalTime?: number | null;
+};
+
+async function parseRecipeFromURL(url: string, existingTags: string[]): Promise<ParsedRecipe> {
   const response = await fetch(`${API_URL}/api/parse-recipe-url`, {
     method: 'POST',
     credentials: 'include',
@@ -20,6 +22,66 @@ async function parseRecipeFromURL(url: string, existingTags: string[]): Promise<
     throw new Error(error.error || 'Fehler beim Parsen der URL');
   }
   return response.json();
+}
+
+async function parseRecipeFromText(text: string, existingTags: string[]): Promise<ParsedRecipe> {
+  const response = await fetch(`${API_URL}/api/parse-recipe-text`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, existingTags }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Fehler beim Parsen des Textes' }));
+    throw new Error(error.error || 'Fehler beim Parsen des Textes');
+  }
+  return response.json();
+}
+
+async function parseRecipeFromImages(files: File[], existingTags: string[]): Promise<ParsedRecipe> {
+  const formData = new FormData();
+  for (const f of files) formData.append('photos', f);
+  formData.append('existingTags', JSON.stringify(existingTags));
+  const response = await fetch(`${API_URL}/api/parse-recipe-image`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Fehler beim Parsen des Fotos' }));
+    throw new Error(error.error || 'Fehler beim Parsen des Fotos');
+  }
+  return response.json();
+}
+
+// Re-encode an image to JPEG with a long-edge cap. Cuts upload size and Vision API tokens.
+async function compressImage(file: File, maxEdge = 2048, quality = 0.85): Promise<File> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
+    fr.readAsDataURL(file);
+  });
+  const img: HTMLImageElement = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Bild konnte nicht dekodiert werden'));
+    el.src = dataUrl;
+  });
+  const longEdge = Math.max(img.width, img.height);
+  const scale = longEdge > maxEdge ? maxEdge / longEdge : 1;
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return file;
+  ctx.drawImage(img, 0, 0, w, h);
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error('Bild konnte nicht kodiert werden')), 'image/jpeg', quality);
+  });
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
 }
 
 async function cleanRecipeText(recipeText: string): Promise<string> {
@@ -205,6 +267,11 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   const [ingredientText, setIngredientText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
+  const [importMode, setImportMode] = useState<'url' | 'image' | 'text'>('url');
+  const [importImages, setImportImages] = useState<File[]>([]);
+  const [importImagePreviews, setImportImagePreviews] = useState<string[]>([]);
+  const imageImportInputRef = useRef<HTMLInputElement>(null);
+  const [importText, setImportText] = useState('');
 
   const [name, setName] = useState(initialData?.name || '');
   const [servings, setServings] = useState(initialData?.defaultServings || 2);
@@ -247,51 +314,116 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   // Unstructured tags (backward compat)
   const unstructuredTags = tags.filter(t => !parseTag(t));
 
+  const applyParsedRecipe = async (parsed: ParsedRecipe) => {
+    if (!name.trim()) setName(parsed.name);
+    if (servings === 2 || !servings) setServings(parsed.servings);
+    setIngredientText(parsed.ingredientText);
+    if (!recipeText.trim()) setRecipeText(parsed.recipeText);
+    if (!category && parsed.category) setCategory(parsed.category);
+    if (tags.length === 0 && parsed.tags?.length) setTags(parsed.tags);
+    if (!prepTime && parsed.prepTime) setPrepTime(parsed.prepTime);
+    if (!totalTime && parsed.totalTime) setTotalTime(parsed.totalTime);
+    if (!photoPreview && parsed.photoUrl) {
+      setRemotePhotoUrl(parsed.photoUrl);
+      setPhotoPreview(parsed.photoUrl);
+      setPhotoFile(null);
+      setDeletePhoto(false);
+    }
+    if (parsed.recipeText?.trim()) {
+      try {
+        const cleaned = await cleanRecipeText(parsed.recipeText);
+        setRecipeText(cleaned);
+      } catch { /* keep raw text */ }
+    }
+    try {
+      const parsedIngs = await parseIngredientsWithAI(parsed.ingredientText);
+      if (parsedIngs.ingredients.length > 0) {
+        setIngredients(parsedIngs.ingredients);
+        setShoppingIngredients(parsedIngs.shoppingIngredients || []);
+        if (parsedIngs.servings && (servings === 2 || !servings)) setServings(parsedIngs.servings);
+      }
+    } catch { /* user can still parse manually */ }
+  };
+
   const handleParseFromURL = async () => {
     if (!recipeUrl.trim()) return;
     try {
       setIsParsing(true);
       const parsed = await parseRecipeFromURL(recipeUrl, allUserTags);
       if (parsed.ingredientText.trim()) {
-        if (!name.trim()) setName(parsed.name);
-        if (servings === 2 || !servings) setServings(parsed.servings);
-        setIngredientText(parsed.ingredientText);
-        if (!recipeText.trim()) setRecipeText(parsed.recipeText);
-        if (!category && parsed.category) setCategory(parsed.category);
-        if (tags.length === 0 && parsed.tags?.length) setTags(parsed.tags);
-        if (!prepTime && parsed.prepTime) setPrepTime(parsed.prepTime);
-        if (!totalTime && parsed.totalTime) setTotalTime(parsed.totalTime);
-        if (!photoPreview && parsed.photoUrl) {
-          setRemotePhotoUrl(parsed.photoUrl);
-          setPhotoPreview(parsed.photoUrl);
-          setPhotoFile(null);
-          setDeletePhoto(false);
-        }
-        // Auto-clean recipe text
-        if (parsed.recipeText?.trim()) {
-          try {
-            const cleaned = await cleanRecipeText(parsed.recipeText);
-            setRecipeText(cleaned);
-          } catch {
-            // Cleaning failed — keep the raw text
-          }
-        }
-        // Auto-parse ingredients (dual lists)
-        try {
-          const parsedIngs = await parseIngredientsWithAI(parsed.ingredientText);
-          if (parsedIngs.ingredients.length > 0) {
-            setIngredients(parsedIngs.ingredients);
-            setShoppingIngredients(parsedIngs.shoppingIngredients || []);
-            if (parsedIngs.servings && (servings === 2 || !servings)) setServings(parsedIngs.servings);
-          }
-        } catch {
-          // Ingredient parsing failed — user can still parse manually
-        }
+        await applyParsedRecipe(parsed);
       } else {
         alert('Keine Zutaten gefunden. Bitte überprüfen Sie die URL.');
       }
     } catch (error) {
       alert('Fehler beim Parsen der URL: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleImageImportSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    if (selected.length === 0) return;
+    e.target.value = '';
+    const remainingSlots = 3 - importImages.length;
+    if (remainingSlots <= 0) {
+      alert('Maximal 3 Fotos.');
+      return;
+    }
+    const toAdd = selected.slice(0, remainingSlots);
+    try {
+      const compressed = await Promise.all(toAdd.map(f => compressImage(f)));
+      const previews = await Promise.all(compressed.map(f => new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result as string);
+        fr.onerror = () => reject(new Error('Preview-Fehler'));
+        fr.readAsDataURL(f);
+      })));
+      setImportImages(prev => [...prev, ...compressed]);
+      setImportImagePreviews(prev => [...prev, ...previews]);
+    } catch (err) {
+      alert('Bild konnte nicht verarbeitet werden: ' + (err instanceof Error ? err.message : 'Unbekannter Fehler'));
+    }
+  };
+
+  const handleImageImportRemove = (index: number) => {
+    setImportImages(prev => prev.filter((_, i) => i !== index));
+    setImportImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleParseFromImages = async () => {
+    if (importImages.length === 0) return;
+    try {
+      setIsParsing(true);
+      const parsed = await parseRecipeFromImages(importImages, allUserTags);
+      if (parsed.ingredientText?.trim()) {
+        await applyParsedRecipe(parsed);
+        setImportImages([]);
+        setImportImagePreviews([]);
+      } else {
+        alert('Keine Zutaten auf den Fotos erkennbar.');
+      }
+    } catch (error) {
+      alert('Fehler beim Parsen der Fotos: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleParseFromText = async () => {
+    if (!importText.trim()) return;
+    try {
+      setIsParsing(true);
+      const parsed = await parseRecipeFromText(importText, allUserTags);
+      if (parsed.ingredientText?.trim()) {
+        await applyParsedRecipe(parsed);
+        setImportText('');
+      } else {
+        alert('Keine Zutaten im Text erkennbar.');
+      }
+    } catch (error) {
+      alert('Fehler beim Parsen des Textes: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
     } finally {
       setIsParsing(false);
     }
@@ -393,11 +525,107 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
     <form id={formId} onSubmit={handleSubmit}>
       {showUrlParsing && (
         <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
-          <input className="input" type="url" value={recipeUrl} onChange={(e) => setRecipeUrl(e.target.value)} placeholder="https://..." style={{ width: '100%' }} />
-          <button type="button" className="btn btn-warning" onClick={handleParseFromURL} disabled={!recipeUrl.trim() || isParsing} style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>
-            {isParsing ? '🤖 Parst...' : '🌐 Rezept von URL parsen'}
-          </button>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <button
+              type="button"
+              className={`pill ${importMode === 'url' ? 'pill-active' : ''}`}
+              onClick={() => setImportMode('url')}
+              style={{ fontSize: '13px', padding: '4px 12px' }}
+            >🌐 URL</button>
+            <button
+              type="button"
+              className={`pill ${importMode === 'image' ? 'pill-active' : ''}`}
+              onClick={() => setImportMode('image')}
+              style={{ fontSize: '13px', padding: '4px 12px' }}
+            >📷 Foto</button>
+            <button
+              type="button"
+              className={`pill ${importMode === 'text' ? 'pill-active' : ''}`}
+              onClick={() => setImportMode('text')}
+              style={{ fontSize: '13px', padding: '4px 12px' }}
+            >📝 Text</button>
+          </div>
+
+          {importMode === 'url' ? (
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
+              <input className="input" type="url" value={recipeUrl} onChange={(e) => setRecipeUrl(e.target.value)} placeholder="https://..." style={{ width: '100%' }} />
+              <button type="button" className="btn btn-warning" onClick={handleParseFromURL} disabled={!recipeUrl.trim() || isParsing} style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}>
+                {isParsing ? '🤖 Parst...' : '🌐 Rezept von URL parsen'}
+              </button>
+            </div>
+          ) : importMode === 'text' ? (
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-Text (eingefügt):</label>
+              <textarea
+                className="textarea"
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="Hier den Rezepttext einfügen (z.B. aus einer Website mit Paywall)..."
+                rows={10}
+                style={{ width: '100%', fontSize: '13px' }}
+              />
+              <label style={{ display: 'block', marginTop: '8px', marginBottom: '5px', fontSize: '13px' }}>Quelle-URL (optional, wird nur gespeichert):</label>
+              <input
+                className="input"
+                type="url"
+                value={recipeUrl}
+                onChange={(e) => setRecipeUrl(e.target.value)}
+                placeholder="https://..."
+                style={{ width: '100%' }}
+              />
+              <button
+                type="button"
+                className="btn btn-warning"
+                onClick={handleParseFromText}
+                disabled={!importText.trim() || isParsing}
+                style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}
+              >
+                {isParsing ? '🤖 Parst...' : '📝 Rezept aus Text parsen'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px' }}>Kochbuch-Foto(s): <span style={{ fontSize: '12px', color: 'var(--text)' }}>max. 3</span></label>
+              {importImagePreviews.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {importImagePreviews.map((src, i) => (
+                    <div key={i} style={{ position: 'relative' }}>
+                      <img src={src} alt={`Foto ${i + 1}`} style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
+                      <button type="button" className="btn btn-danger btn-sm" onClick={() => handleImageImportRemove(i)} style={{ position: 'absolute', top: '4px', right: '4px' }}>✗</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={imageImportInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={handleImageImportSelect}
+                style={{ display: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-muted"
+                  onClick={() => imageImportInputRef.current?.click()}
+                  disabled={importImages.length >= 3 || isParsing}
+                >
+                  {importImages.length === 0 ? '📷 Foto wählen' : '+ Weiteres Foto'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-warning"
+                  onClick={handleParseFromImages}
+                  disabled={importImages.length === 0 || isParsing}
+                >
+                  {isParsing ? '🤖 Parst...' : `📷 Rezept aus ${importImages.length || ''} Foto${importImages.length === 1 ? '' : 's'} parsen`}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

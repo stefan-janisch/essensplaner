@@ -68,57 +68,46 @@ function getInitialShareStatus(): 'idle' | 'joining' {
   return (params.get('share') || params.get('joined')) ? 'joining' : 'idle';
 }
 
-function useShareJoin(onJoined: () => void) {
+function useShareJoin(onJoined: (planId: number) => void) {
   const { joinSharedPlan, selectPlan, isLoading } = useMealPlan();
   const [status, setStatus] = useState<'idle' | 'joining' | 'error'>(getInitialShareStatus);
   const [errorMsg, setErrorMsg] = useState('');
   const handled = useRef(false);
-  const pendingJoinedId = useRef<number | null>(null);
 
-  // Read query params once on first render
-  const paramsRef = useRef(() => {
-    const params = new URLSearchParams(window.location.search);
-    const shareToken = params.get('share');
-    const joinedPlanId = params.get('joined');
+  // Read query params once on first render and clear them from the URL
+  const [params] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const shareToken = p.get('share');
+    const joinedPlanId = p.get('joined');
 
     if (shareToken || joinedPlanId) {
       const url = new URL(window.location.href);
       url.searchParams.delete('share');
       url.searchParams.delete('joined');
       url.searchParams.delete('shareError');
-      window.history.replaceState({}, '', url.pathname);
+      window.history.replaceState({}, '', url.pathname + url.hash);
     }
 
-    return { shareToken, joinedPlanId };
+    return { shareToken, joinedPlanId: joinedPlanId ? Number(joinedPlanId) : null };
   });
 
   // Handle ?share= token (API join)
   useEffect(() => {
-    if (handled.current) return;
-    const { shareToken } = paramsRef.current();
-    if (!shareToken) return;
-
+    if (handled.current || !params.shareToken) return;
     handled.current = true;
-    joinSharedPlan(shareToken)
-      .then(() => { onJoined(); })
+    joinSharedPlan(params.shareToken)
+      .then(planId => { setStatus('idle'); onJoined(planId); })
       .catch(err => { setStatus('error'); setErrorMsg(err instanceof Error ? err.message : 'Beitritt fehlgeschlagen'); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle ?joined= (server already joined, wait for initial load then select plan)
   useEffect(() => {
-    if (handled.current) return;
-    const { joinedPlanId } = paramsRef.current();
-    if (!joinedPlanId) return;
-
-    if (pendingJoinedId.current === null) {
-      pendingJoinedId.current = Number(joinedPlanId);
-    }
-
-    if (!isLoading && pendingJoinedId.current !== null) {
-      handled.current = true;
-      selectPlan(pendingJoinedId.current);
-      onJoined();
-    }
+    if (handled.current || params.joinedPlanId === null) return;
+    if (isLoading) return;
+    handled.current = true;
+    selectPlan(params.joinedPlanId);
+    setStatus('idle');
+    onJoined(params.joinedPlanId);
   }, [isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { status, errorMsg };
@@ -140,7 +129,7 @@ function parseHash(hash: string): { view: AppView; planId?: number } {
 }
 
 function AuthenticatedAppInner() {
-  const { selectPlan } = useMealPlan();
+  const { selectPlan, state } = useMealPlan();
   const [view, setViewState] = useState<AppView>(() => parseHash(window.location.hash).view);
 
   const setView = useCallback((v: AppView, planId?: number) => {
@@ -171,7 +160,13 @@ function AuthenticatedAppInner() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [selectPlan]);
 
-  const { status, errorMsg } = useShareJoin(() => setView('planner'));
+  const plansRef = useRef(state.plans);
+  plansRef.current = state.plans;
+
+  const { status, errorMsg } = useShareJoin((planId: number) => {
+    const joined = plansRef.current.find(p => p.id === planId);
+    setView(joined?.planType === 'menu' ? 'menuplan' : 'planner', planId);
+  });
 
   if (status === 'joining') {
     return (

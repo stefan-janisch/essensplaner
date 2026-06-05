@@ -301,4 +301,53 @@ if (version < 15) {
   console.log('✓ Migration v15 complete');
 }
 
+if (version < 16) {
+  console.log('Running migration v16: reorganize tags (gesund/entzündungshemmend → ernährung, drop kalorienarm)...');
+  const meals = db.prepare('SELECT id, tags FROM meals WHERE tags IS NOT NULL').all();
+  const update = db.prepare('UPDATE meals SET tags = ? WHERE id = ?');
+  const RENAME = {
+    'eigenschaft:gesund': 'ernährung:gesund',
+    'eigenschaft:entzündungshemmend': 'ernährung:entzündungshemmend',
+    'eigenschaft:entzündungshemmend+': 'ernährung:entzündungshemmend+',
+  };
+  const DROP = new Set(['eigenschaft:kalorienarm']);
+  let touched = 0;
+  for (const m of meals) {
+    let arr;
+    try { arr = JSON.parse(m.tags); } catch { continue; }
+    if (!Array.isArray(arr)) continue;
+    const next = [];
+    for (const t of arr) {
+      if (DROP.has(t)) continue;
+      next.push(RENAME[t] || t);
+    }
+    const deduped = [...new Set(next)];
+    const before = JSON.stringify(arr);
+    const after = JSON.stringify(deduped);
+    if (before !== after) {
+      update.run(after, m.id);
+      touched++;
+    }
+  }
+  db.pragma('user_version = 16');
+  console.log(`✓ Migration v16 complete (${touched} meals updated)`);
+}
+
+if (version < 17) {
+  console.log('Running migration v17: plan slot notes...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plan_slot_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      meal_type TEXT NOT NULL,
+      note TEXT NOT NULL,
+      UNIQUE(plan_id, date, meal_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_slot_notes_plan ON plan_slot_notes(plan_id);
+  `);
+  db.pragma('user_version = 17');
+  console.log('✓ Migration v17 complete');
+}
+
 export default db;

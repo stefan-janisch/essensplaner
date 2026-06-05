@@ -36,6 +36,7 @@ export function RecipeCard({
   onView,
   onEdit,
   onDelete,
+  onDuplicate,
   onToggleStar,
   onAddToPlan,
   onSetRating,
@@ -49,6 +50,7 @@ export function RecipeCard({
   onView?: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onToggleStar: () => void;
   onAddToPlan?: () => void;
   onSetRating?: (rating: number) => void;
@@ -126,6 +128,11 @@ export function RecipeCard({
             <button className="btn-ghost" onClick={onEdit} style={{ color: 'var(--accent)' }} title="Bearbeiten">
               ✏️
             </button>
+            {onDuplicate && (
+              <button className="btn-ghost" onClick={onDuplicate} title="Duplizieren">
+                📋
+              </button>
+            )}
             <button className="btn-ghost" onClick={onDelete} style={{ color: 'var(--color-danger)' }} title="Löschen">
               🗑️
             </button>
@@ -201,6 +208,7 @@ export function RecipeDetailModal({
   servings,
   onClose,
   onEdit,
+  onDuplicate,
   onToggleStar,
   onSetRating,
 }: {
@@ -208,13 +216,24 @@ export function RecipeDetailModal({
   servings?: number;
   onClose: () => void;
   onEdit?: () => void;
+  onDuplicate?: () => void;
   onToggleStar?: () => void;
   onSetRating?: (rating: number) => void;
 }) {
-  const { updateMeal } = useMealPlan();
+  const { updateMeal, activePlan } = useMealPlan();
+  const [duplicating, setDuplicating] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
   const [commentText, setCommentText] = useState(meal.comment || '');
-  const displayServings = servings ?? meal.defaultServings;
+  const [usePlanTotal, setUsePlanTotal] = useState(false);
+
+  const planEntriesForMeal = (activePlan?.entries || []).filter(
+    e => e.mealId === meal.id && e.enabled
+  );
+  const planOccurrences = planEntriesForMeal.length;
+  const planTotalServings = planEntriesForMeal.reduce((sum, e) => sum + e.servings, 0);
+  const baseServings = servings ?? meal.defaultServings;
+  const canBatchCook = planOccurrences >= 2 && planTotalServings > baseServings;
+  const displayServings = canBatchCook && usePlanTotal ? planTotalServings : baseServings;
 
   const handleSaveComment = () => {
     const newComment = commentText.trim() || undefined;
@@ -238,6 +257,16 @@ export function RecipeDetailModal({
           {onToggleStar && (
             <button className="btn-ghost" onClick={onToggleStar} style={{ fontSize: '20px' }}>
               {meal.starred ? '⭐' : '☆'}
+            </button>
+          )}
+          {onDuplicate && (
+            <button
+              className="btn btn-muted"
+              disabled={duplicating}
+              onClick={async () => { setDuplicating(true); await onDuplicate(); setDuplicating(false); onClose(); }}
+              style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+            >
+              {duplicating ? '...' : 'Duplizieren'}
             </button>
           )}
           {onEdit && <button className="btn btn-accent" onClick={onEdit} style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>Bearbeiten</button>}
@@ -289,6 +318,20 @@ export function RecipeDetailModal({
             </span>
           )}
         </div>
+
+        {canBatchCook && (
+          <div style={{ marginBottom: '12px' }}>
+            <button
+              className="btn btn-muted"
+              onClick={() => setUsePlanTotal(v => !v)}
+              style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+            >
+              {usePlanTotal
+                ? `↩️ Einzelportion (${baseServings})`
+                : `🍲 Vorkochen: alle ${planTotalServings} Portionen anzeigen (${planOccurrences}× im Plan)`}
+            </button>
+          </div>
+        )}
 
         <div style={{ marginBottom: '16px' }}>
           {editingComment ? (
@@ -646,12 +689,12 @@ function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void })
 }
 
 export const RecipeManagement: React.FC = () => {
-  const { state, toggleMealStar, deleteMeal, updateMeal, importMeals } = useMealPlan();
+  const { state, toggleMealStar, deleteMeal, updateMeal, importMeals, duplicateMeal } = useMealPlan();
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
-  const [sortBy, setSortBy] = useState<SortBy>('name');
+  const [sortBy, setSortBy] = useState<SortBy>('newest');
   const [maxPrepTime, setMaxPrepTime] = useState<number | ''>('');
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
@@ -661,7 +704,7 @@ export const RecipeManagement: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
-    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
+    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'newest' ? 1 : 0)
     + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0) + (minProtein !== '' ? 1 : 0);
 
   const [viewingMeal, setViewingMeal] = useState<Meal | null>(null);
@@ -931,6 +974,7 @@ export const RecipeManagement: React.FC = () => {
               onView={() => setViewingMeal(meal)}
               onEdit={() => setEditingMeal(meal)}
               onDelete={() => handleDelete(meal)}
+              onDuplicate={() => duplicateMeal(meal.id)}
               onToggleStar={() => toggleMealStar(meal.id)}
               onAddToPlan={() => setAddToPlanMeal(meal)}
               onSetRating={(r) => handleSetRating(meal.id, r)}
@@ -948,6 +992,7 @@ export const RecipeManagement: React.FC = () => {
           meal={currentViewingMeal}
           onClose={() => setViewingMeal(null)}
           onEdit={() => { setEditingMeal(currentViewingMeal); setViewingMeal(null); }}
+          onDuplicate={() => duplicateMeal(currentViewingMeal.id)}
           onToggleStar={() => toggleMealStar(currentViewingMeal.id)}
           onSetRating={(r) => handleSetRating(currentViewingMeal.id, r)}
         />

@@ -93,8 +93,8 @@ export function calculateOptimalMultiplier(nutrition: NutritionInfo, perMealTarg
     const t = perMealTargets[key];
     if (t <= 0) return 0;
     const r = nutrition[key] / t;
-    if (MORE_IS_BETTER.has(key)) return Math.min(r, 1);
-    if (LESS_IS_BETTER.has(key)) return Math.max(r, 1);
+    if (MORE_IS_BETTER.has(key)) return r >= 1 ? 0 : r;   // already satisfied → exclude
+    if (LESS_IS_BETTER.has(key)) return r <= 1 ? 0 : r;   // already satisfied → exclude
     return r;
   }).filter(r => r > 0);
   if (ratios.length === 0) return 1;

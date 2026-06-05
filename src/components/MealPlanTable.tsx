@@ -154,7 +154,7 @@ interface MealCellProps {
 }
 
 const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
-  const { allMealsForActivePlan, activePlan, toggleSlotDisabled } = useMealPlan();
+  const { allMealsForActivePlan, activePlan, toggleSlotDisabled, setSlotNote } = useMealPlan();
   const onAddRequest = useContext(MenuAddContext);
 
   const entries = (activePlan?.entries || []).filter(
@@ -165,10 +165,79 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
     s => s.date === date && s.mealType === mealType
   );
 
+  const slotNote = (activePlan?.slotNotes || []).find(
+    n => n.date === date && n.mealType === mealType
+  );
+
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const cancelNoteRef = React.useRef(false);
+
+  const openNoteEditor = () => {
+    cancelNoteRef.current = false;
+    setNoteText(slotNote?.note ?? '');
+    setEditingNote(true);
+  };
+
+  const saveNote = () => {
+    if (cancelNoteRef.current) {
+      cancelNoteRef.current = false;
+      setEditingNote(false);
+      return;
+    }
+    setSlotNote(date, mealType, noteText);
+    setEditingNote(false);
+  };
+
+  const handleNoteKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveNote();
+    } else if (e.key === 'Escape') {
+      cancelNoteRef.current = true;
+      setEditingNote(false);
+    }
+  };
+
   const { setNodeRef, isOver } = useDroppable({
     id: `${date}-${mealType}`,
     data: { date, mealType },
   });
+
+  const noteIconButton = onAddRequest && (
+    <button
+      className="btn-ghost"
+      onClick={openNoteEditor}
+      style={{ fontSize: '13px', padding: '0 4px', opacity: 0.5 }}
+      title="Notiz hinzufügen"
+    >
+      📝
+    </button>
+  );
+
+  const noteDisplay = slotNote && !editingNote && (
+    <div
+      onClick={openNoteEditor}
+      style={{ fontSize: '12px', color: 'var(--color-muted)', fontStyle: 'italic', cursor: 'pointer', marginBottom: '4px', whiteSpace: 'pre-wrap' }}
+      title="Notiz bearbeiten"
+    >
+      📝 {slotNote.note}
+    </div>
+  );
+
+  const noteEditor = editingNote && (
+    <input
+      className="input"
+      type="text"
+      autoFocus
+      value={noteText}
+      placeholder="Notiz…"
+      onChange={e => setNoteText(e.target.value)}
+      onKeyDown={handleNoteKeyDown}
+      onBlur={saveNote}
+      style={{ width: '100%', padding: '3px 6px', fontSize: '12px', marginBottom: '4px' }}
+    />
+  );
 
   return (
     <td
@@ -181,6 +250,8 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
         opacity: entries.length === 0 && isSlotDisabled ? 0.4 : undefined,
       }}
     >
+      {noteDisplay}
+      {noteEditor}
       {entries.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '8px', fontSize: '13px' }}>
           {isSlotDisabled ? (
@@ -189,8 +260,9 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
             <>
               <div style={{ color: 'var(--text)', opacity: 0.3, cursor: 'pointer' }} onClick={() => toggleSlotDisabled(date, mealType)} title="Slot deaktivieren">—</div>
               {onAddRequest && (
-                <div style={{ marginTop: '4px' }}>
+                <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'center', gap: '4px' }}>
                   <button className="btn-ghost" onClick={() => onAddRequest(date, mealType)} style={{ color: 'var(--accent)', fontSize: '14px', padding: '0 4px', opacity: 0.5 }} title="Rezept hinzufügen">+</button>
+                  {noteIconButton}
                 </div>
               )}
             </>
@@ -204,8 +276,9 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
             return <MealCellItem key={entry.id} entry={entry} meal={meal} />;
           })}
           {onAddRequest && (
-            <div style={{ textAlign: 'center', marginTop: '4px' }}>
+            <div style={{ textAlign: 'center', marginTop: '4px', display: 'flex', justifyContent: 'center', gap: '4px' }}>
               <button className="btn-ghost" onClick={() => onAddRequest(date, mealType)} style={{ color: 'var(--accent)', fontSize: '14px', padding: '0 4px', opacity: 0.5 }} title="Weiteres Rezept hinzufügen">+</button>
+              {noteIconButton}
             </div>
           )}
         </>

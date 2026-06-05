@@ -1,6 +1,6 @@
 export const TAG_GROUPS = [
   { key: 'küche', label: 'Küche', values: [
-    'italienisch', 'französisch', 'asiatisch', 'mexikanisch', 'indisch',
+    'italienisch', 'französisch', 'asiatisch', 'chinesisch', 'mexikanisch', 'indisch',
     'griechisch', 'türkisch', 'deutsch', 'japanisch', 'thailändisch',
     'orientalisch', 'mediterran', 'amerikanisch', 'österreichisch', 'ungarisch', 'russisch',
   ]},
@@ -9,9 +9,10 @@ export const TAG_GROUPS = [
   ]},
   { key: 'ernährung', label: 'Ernährung', values: [
     'vegetarisch', 'vegan', 'glutenfrei', 'laktosefrei', 'low-carb', 'high-protein',
+    'gesund', 'entzündungshemmend', 'entzündungshemmend+',
   ]},
   { key: 'eigenschaft', label: 'Eigenschaften', values: [
-    'schnell', 'günstig', 'kinderfreundlich', 'meal-prep', 'einfrierbar', 'one-pot', 'kalorienarm', 'gesund', 'haute-cuisine',
+    'schnell', 'günstig', 'kinderfreundlich', 'meal-prep', 'einfrierbar', 'one-pot', 'haute-cuisine',
   ]},
 ];
 

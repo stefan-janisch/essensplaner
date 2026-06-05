@@ -182,6 +182,14 @@ router.get('/:planId', (req, res) => {
     'SELECT date, meal_type FROM disabled_slots WHERE plan_id = ?'
   ).all(plan.id).map(r => ({ date: r.date, mealType: r.meal_type }));
 
+  const slotNotes = db.prepare(
+    'SELECT date, meal_type, note FROM plan_slot_notes WHERE plan_id = ?'
+  ).all(plan.id).map(r => ({ date: r.date, mealType: r.meal_type, note: r.note }));
+
+  const excludedIngredients = db.prepare(
+    'SELECT ingredient_name FROM excluded_shopping_ingredients WHERE plan_id = ?'
+  ).all(plan.id).map(r => r.ingredient_name);
+
   const ownerRow = db.prepare('SELECT email FROM users WHERE id = ?').get(plan.user_id);
 
   res.json({
@@ -191,6 +199,8 @@ router.get('/:planId', (req, res) => {
     extras: extras.map(rowToExtra),
     courses: courses.map(rowToCourse),
     disabledSlots,
+    slotNotes,
+    excludedIngredients,
     sharedMeals,
     collaborators,
   });
@@ -374,6 +384,74 @@ router.post('/:planId/disabled-slots', (req, res) => {
   }
 });
 
+// --- Slot notes (per date + mealType comment) ---
+
+router.post('/:planId/slot-notes', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  try {
+    const { date, mealType, note } = req.body;
+    if (!date || !mealType) {
+      return res.status(400).json({ error: 'date und mealType sind erforderlich' });
+    }
+
+    const trimmed = (note || '').trim();
+    if (!trimmed) {
+      db.prepare(
+        'DELETE FROM plan_slot_notes WHERE plan_id = ? AND date = ? AND meal_type = ?'
+      ).run(plan.id, date, mealType);
+      return res.json({ date, mealType, note: '' });
+    }
+
+    db.prepare(`
+      INSERT INTO plan_slot_notes (plan_id, date, meal_type, note) VALUES (?, ?, ?, ?)
+      ON CONFLICT(plan_id, date, meal_type) DO UPDATE SET note = excluded.note
+    `).run(plan.id, date, mealType, trimmed);
+    res.json({ date, mealType, note: trimmed });
+  } catch (err) {
+    console.error('Set slot note error:', err);
+    res.status(500).json({ error: 'Notiz konnte nicht gespeichert werden' });
+  }
+});
+
+// --- Excluded shopping ingredients ---
+
+router.post('/:planId/excluded-ingredients', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  try {
+    const { name } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'name ist erforderlich' });
+    }
+
+    const normalized = name.toLowerCase().trim();
+
+    const existing = db.prepare(
+      'SELECT id FROM excluded_shopping_ingredients WHERE plan_id = ? AND ingredient_name = ?'
+    ).get(plan.id, normalized);
+
+    if (existing) {
+      db.prepare('DELETE FROM excluded_shopping_ingredients WHERE id = ?').run(existing.id);
+    } else {
+      db.prepare(
+        'INSERT INTO excluded_shopping_ingredients (plan_id, ingredient_name) VALUES (?, ?)'
+      ).run(plan.id, normalized);
+    }
+
+    const excludedIngredients = db.prepare(
+      'SELECT ingredient_name FROM excluded_shopping_ingredients WHERE plan_id = ?'
+    ).all(plan.id).map(r => r.ingredient_name);
+
+    res.json({ excludedIngredients });
+  } catch (err) {
+    console.error('Toggle excluded ingredient error:', err);
+    res.status(500).json({ error: 'Zutat konnte nicht umgeschaltet werden' });
+  }
+});
+
 // --- Extras (free-form items) ---
 
 // Add extra item
@@ -501,6 +579,14 @@ router.delete('/:planId/courses/:courseId', (req, res) => {
 
 // --- Share management (owner only) ---
 
+function shareBaseUrl(req) {
+  const host = req.get('host');
+  if (host && !/^localhost(:|$)/i.test(host)) {
+    return `${req.protocol}://${host}`;
+  }
+  return process.env.CLIENT_URL || `${req.protocol}://${host || 'localhost:5173'}`;
+}
+
 // Create share link
 router.post('/:planId/share', (req, res) => {
   const plan = getPlanForUser(req.params.planId, req.userId);
@@ -512,10 +598,11 @@ router.post('/:planId/share', (req, res) => {
   }
 
   try {
+    const baseUrl = shareBaseUrl(req);
+
     // Check if share already exists
     const existing = db.prepare('SELECT * FROM plan_shares WHERE plan_id = ?').get(plan.id);
     if (existing) {
-      const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173';
       return res.json({
         token: existing.token,
         url: `${baseUrl}/share/${existing.token}`,
@@ -531,7 +618,6 @@ router.post('/:planId/share', (req, res) => {
       'INSERT INTO plan_shares (plan_id, token, created_by, expires_at) VALUES (?, ?, ?, ?)'
     ).run(plan.id, token, req.userId, expiresAt);
 
-    const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173';
     res.status(201).json({
       token,
       url: `${baseUrl}/share/${token}`,
@@ -558,7 +644,7 @@ router.get('/:planId/share', (req, res) => {
     return res.json(null);
   }
 
-  const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const baseUrl = shareBaseUrl(req);
   res.json({
     token: share.token,
     url: `${baseUrl}/share/${share.token}`,

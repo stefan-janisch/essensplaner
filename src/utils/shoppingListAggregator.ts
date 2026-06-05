@@ -15,7 +15,7 @@ export interface AggregatedIngredient {
   sources: IngredientSource[];
 }
 
-const normalizeIngredientName = (name: string): string => {
+export const normalizeIngredientName = (name: string): string => {
   return name.toLowerCase().trim();
 };
 

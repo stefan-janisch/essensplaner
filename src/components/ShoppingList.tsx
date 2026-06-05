@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
-import { generateShoppingList, mergeUnitsInShoppingList } from '../utils/shoppingListAggregator';
+import { generateShoppingList, mergeUnitsInShoppingList, normalizeIngredientName } from '../utils/shoppingListAggregator';
 import type { AggregatedIngredient } from '../utils/shoppingListAggregator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export const ShoppingList: React.FC = () => {
-  const { allMealsForActivePlan, activePlan, renameIngredientInAllMeals } = useMealPlan();
+  const { allMealsForActivePlan, activePlan, renameIngredientInAllMeals, toggleIngredientExcluded } = useMealPlan();
   const [isExpanded, setIsExpanded] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -62,6 +62,13 @@ export const ShoppingList: React.FC = () => {
 
   const displayList = mergedList || shoppingList;
 
+  const excludedSet = React.useMemo(
+    () => new Set(activePlan?.excludedIngredients || []),
+    [activePlan?.excludedIngredients]
+  );
+  const isExcluded = (name: string) => excludedSet.has(normalizeIngredientName(name));
+  const exportList = displayList.filter(item => !isExcluded(item.name));
+
   const handlePrint = () => {
     const printWindow = window.open('', '', 'width=800,height=600');
     if (!printWindow) return;
@@ -82,7 +89,7 @@ export const ShoppingList: React.FC = () => {
         <body>
           <h1>Einkaufsliste</h1>
           <ul>
-            ${displayList
+            ${exportList
               .map(
                 item =>
                   `<li>
@@ -104,7 +111,7 @@ export const ShoppingList: React.FC = () => {
   };
 
   const handleCopyToClipboard = () => {
-    const text = displayList
+    const text = exportList
       .map(item => {
         const amounts = item.amounts.map(a => `${a.amount} ${a.unit}`).join(', ');
         return `${item.name}: ${amounts}`;
@@ -125,7 +132,7 @@ export const ShoppingList: React.FC = () => {
     const input = document.createElement('input');
     input.type = 'hidden';
     input.name = 'shoppingList';
-    input.value = JSON.stringify(displayList);
+    input.value = JSON.stringify(exportList);
 
     form.appendChild(input);
     document.body.appendChild(form);
@@ -159,6 +166,8 @@ export const ShoppingList: React.FC = () => {
     setEditingName('');
   };
 
+  const visibleCount = shoppingList.filter(item => !isExcluded(item.name)).length;
+
   if (shoppingList.length === 0) {
     return null;
   }
@@ -171,7 +180,7 @@ export const ShoppingList: React.FC = () => {
           onClick={() => setIsExpanded(true)}
           style={{ width: '100%' }}
         >
-          🛒 Einkaufsliste anzeigen ({shoppingList.length} Zutaten)
+          🛒 Einkaufsliste anzeigen ({visibleCount} Zutaten)
         </button>
       ) : (
         <div>
@@ -199,7 +208,9 @@ export const ShoppingList: React.FC = () => {
 
           <div className="card" style={{ padding: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
             <ul style={{ listStyleType: 'none', padding: 0, margin: 0 }}>
-              {displayList.map((item, index) => (
+              {displayList.map((item, index) => {
+                const excluded = isExcluded(item.name);
+                return (
                 <li
                   key={index}
                   style={{
@@ -231,7 +242,17 @@ export const ShoppingList: React.FC = () => {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                      <div style={{ fontWeight: 'bold', flex: 1, color: 'var(--text-h)' }}>{item.name}</div>
+                      <div
+                        style={{
+                          fontWeight: 'bold',
+                          flex: 1,
+                          color: 'var(--text-h)',
+                          opacity: excluded ? 0.4 : 1,
+                          textDecoration: excluded ? 'line-through' : 'none',
+                        }}
+                      >
+                        {item.name}
+                      </div>
                       <button
                         className="btn-ghost"
                         onClick={() => setInfoIndex(infoIndex === index ? null : index)}
@@ -248,9 +269,24 @@ export const ShoppingList: React.FC = () => {
                       >
                         ✏️
                       </button>
+                      <button
+                        className="btn-ghost"
+                        onClick={() => toggleIngredientExcluded(item.name)}
+                        style={{ fontSize: '14px', color: 'var(--accent)' }}
+                        title={excluded ? 'Wieder einschließen' : 'Zutat ausschließen'}
+                      >
+                        {excluded ? '↩️' : '🚫'}
+                      </button>
                     </div>
                   )}
-                  <div style={{ fontSize: '14px', color: 'var(--text)' }}>
+                  <div
+                    style={{
+                      fontSize: '14px',
+                      color: 'var(--text)',
+                      opacity: excluded ? 0.4 : 1,
+                      textDecoration: excluded ? 'line-through' : 'none',
+                    }}
+                  >
                     {item.amounts.map((a, i) => (
                       <span key={i}>
                         {a.amount} {a.unit}
@@ -288,7 +324,8 @@ export const ShoppingList: React.FC = () => {
                     </div>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         </div>
