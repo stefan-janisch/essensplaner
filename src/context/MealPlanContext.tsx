@@ -21,6 +21,12 @@ interface MealPlanContextType {
   setNutritionProfile: (profile: NutritionProfile | null) => Promise<void>;
   useOptimalPortions: boolean;
   setUseOptimalPortions: (v: boolean) => Promise<void>;
+  nutritionLogEnabled: boolean;
+  setNutritionLogEnabled: (v: boolean) => Promise<void>;
+  pantryStaples: string[];
+  setPantryStaples: (items: string[]) => Promise<void>;
+  freshIngredients: string[];
+  setFreshIngredients: (items: string[]) => Promise<void>;
 
   // Plan management
   createPlan: (name: string, startDate: Date | null, endDate: Date | null, planType?: PlanType) => Promise<number>;
@@ -84,6 +90,9 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [mealsPerDay, setMealsPerDayLocal] = useState(3);
   const [nutritionProfile, setNutritionProfileLocal] = useState<NutritionProfile | null>(null);
   const [useOptimalPortions, setUseOptimalPortionsLocal] = useState(false);
+  const [nutritionLogEnabled, setNutritionLogEnabledLocal] = useState(false);
+  const [pantryStaples, setPantryStaplesLocal] = useState<string[]>([]);
+  const [freshIngredients, setFreshIngredientsLocal] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,13 +103,16 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         const [meals, plans, settings] = await Promise.all([
           api.get<Meal[]>('/api/meals'),
           api.get<MealPlan[]>('/api/plans'),
-          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number; nutritionProfile: NutritionProfile | null; useOptimalPortions: boolean }>('/api/settings'),
+          api.get<{ defaultServings: number; nutritionTargets: NutritionTargets | null; mealsPerDay: number; nutritionProfile: NutritionProfile | null; useOptimalPortions: boolean; pantryStaples?: string[]; freshIngredients?: string[]; nutritionLogEnabled?: boolean }>('/api/settings'),
         ]);
         setDefaultServingsLocal(settings.defaultServings);
         setNutritionTargetsLocal(settings.nutritionTargets);
         if (settings.mealsPerDay) setMealsPerDayLocal(settings.mealsPerDay);
         if (settings.nutritionProfile) setNutritionProfileLocal(settings.nutritionProfile);
         setUseOptimalPortionsLocal(!!settings.useOptimalPortions);
+        setNutritionLogEnabledLocal(!!settings.nutritionLogEnabled);
+        if (settings.pantryStaples) setPantryStaplesLocal(settings.pantryStaples);
+        if (settings.freshIngredients) setFreshIngredientsLocal(settings.freshIngredients);
 
         // Check URL hash for a specific plan ID
         const hashMatch = window.location.hash.match(/^#(?:planer|menuplan)\/(\d+)/);
@@ -184,6 +196,33 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       await api.put('/api/settings', { useOptimalPortions: v });
     } catch {
       console.error('Failed to save optimal portions setting');
+    }
+  }, []);
+
+  const setNutritionLogEnabled = useCallback(async (v: boolean) => {
+    setNutritionLogEnabledLocal(v);
+    try {
+      await api.put('/api/settings', { nutritionLogEnabled: v });
+    } catch {
+      console.error('Failed to save nutrition log setting');
+    }
+  }, []);
+
+  const setPantryStaples = useCallback(async (items: string[]) => {
+    setPantryStaplesLocal(items);
+    try {
+      await api.put('/api/settings', { pantryStaples: items });
+    } catch {
+      console.error('Failed to save pantry staples');
+    }
+  }, []);
+
+  const setFreshIngredients = useCallback(async (items: string[]) => {
+    setFreshIngredientsLocal(items);
+    try {
+      await api.put('/api/settings', { freshIngredients: items });
+    } catch {
+      console.error('Failed to save fresh ingredients');
     }
   }, []);
 
@@ -820,6 +859,12 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
         setNutritionProfile,
         useOptimalPortions,
         setUseOptimalPortions,
+        nutritionLogEnabled,
+        setNutritionLogEnabled,
+        pantryStaples,
+        setPantryStaples,
+        freshIngredients,
+        setFreshIngredients,
         createPlan,
         selectPlan,
         deletePlan,

@@ -63,7 +63,7 @@ function NutritionBackfill() {
 
 function ProfileTab() {
   const { user, logout } = useAuth();
-  const { defaultServings, setDefaultServings, nutritionTargets, setNutritionTargets, mealsPerDay, setMealsPerDay } = useMealPlan();
+  const { defaultServings, setDefaultServings, nutritionTargets, setNutritionTargets, mealsPerDay, setMealsPerDay, nutritionLogEnabled, setNutritionLogEnabled } = useMealPlan();
 
   const current = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
   const [targets, setTargets] = useState<NutritionTargets>({ ...current });
@@ -138,6 +138,17 @@ function ProfileTab() {
             Auf DGE-Empfehlung zurücksetzen
           </button>
         )}
+      </div>
+
+      <div className="settings-section">
+        <h3>Nährwert-Log</h3>
+        <label className="settings-field" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={nutritionLogEnabled} onChange={e => setNutritionLogEnabled(e.target.checked)} />
+          <span>Nährwert-Log aktivieren</span>
+        </label>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+          Zeichnet alle als gekocht markierten Mahlzeiten (Status ✗) bis einschließlich heute samt Nährwerten im Hintergrund auf – als Grundlage für den Monatsbericht.
+        </p>
       </div>
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '16px' }}>

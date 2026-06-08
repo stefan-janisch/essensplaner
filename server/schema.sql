@@ -22,6 +22,34 @@ CREATE TABLE IF NOT EXISTS weight_history (
 );
 CREATE INDEX IF NOT EXISTS idx_weight_history_user ON weight_history(user_id, date);
 
+-- Immutable per-user nutrition log (opt-in via users.nutrition_log_enabled). Each row is a
+-- denormalized snapshot of a cooked/checked-off plan entry so it survives deletion of the
+-- plan, entry, or recipe; only user_id cascades. Normalization per person happens at report time.
+CREATE TABLE IF NOT EXISTS nutrition_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_id INTEGER NOT NULL,
+  entry_id INTEGER NOT NULL,
+  meal_id TEXT,
+  meal_name TEXT,
+  date TEXT NOT NULL,
+  meal_type TEXT,
+  servings INTEGER NOT NULL,
+  persons INTEGER NOT NULL,
+  nutrition_per_serving TEXT,
+  logged_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, entry_id)
+);
+CREATE INDEX IF NOT EXISTS idx_nutrition_logs_user_date ON nutrition_logs(user_id, date);
+
+-- Idempotency log for the monthly report push (one broadcast per month).
+CREATE TABLE IF NOT EXISTS report_notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  month TEXT NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(month)
+);
+
 CREATE TABLE IF NOT EXISTS ai_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

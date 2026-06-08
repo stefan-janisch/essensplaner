@@ -6,6 +6,7 @@ import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import { ExtraItemRow } from './MealPlanTable';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
 import { DayNutritionDot } from './DayNutritionDot';
+import { useSlotNote } from '../hooks/useSlotNote';
 
 interface MobileDayViewProps {
   onAddRequest: (date: string, mealType: MealType) => void;
@@ -64,7 +65,7 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
             onClick={() => { setEditServings(entry.servings); setIsEditingServings(true); }}
             style={{ cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}
           >
-            {entry.servings} P.
+            {Number(entry.servings.toFixed(1))} P.
           </span>
         )}
         <button
@@ -88,6 +89,7 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
         <RecipeDetailModal
           meal={meal}
           servings={entry.servings}
+          entryId={entry.id}
           onClose={() => setShowRecipe(false)}
           onEdit={() => { setShowRecipe(false); setShowEdit(true); }}
           onToggleStar={() => toggleMealStar(meal.id)}
@@ -184,6 +186,96 @@ function MobileExtrasSection() {
   );
 }
 
+interface MobileMealSectionProps {
+  date: string;
+  type: MealType;
+  label: string;
+  mealEntries: MealPlanEntry[];
+  allMealsForActivePlan: Meal[];
+  isSlotDisabled: boolean;
+  onAddRequest: (date: string, mealType: MealType) => void;
+  toggleSlotDisabled: (date: string, mealType: MealType) => void;
+}
+
+function MobileMealSection({
+  date,
+  type,
+  label,
+  mealEntries,
+  allMealsForActivePlan,
+  isSlotDisabled,
+  onAddRequest,
+  toggleSlotDisabled,
+}: MobileMealSectionProps) {
+  const { slotNote, editingNote, noteText, setNoteText, openNoteEditor, saveNote, handleNoteKeyDown } =
+    useSlotNote(date, type);
+
+  return (
+    <div className="mobile-meal-section" style={{ opacity: mealEntries.length === 0 && isSlotDisabled ? 0.4 : undefined }}>
+      <div className="mobile-meal-section-header">
+        <span>{label}</span>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <button
+            className="btn-ghost"
+            onClick={openNoteEditor}
+            style={{ fontSize: '15px', padding: '0 4px', opacity: 0.5, minHeight: 'unset' }}
+            title="Notiz hinzufügen"
+          >
+            📝
+          </button>
+          <button
+            className="mobile-add-btn"
+            onClick={() => onAddRequest(date, type)}
+            title={`${label} hinzufügen`}
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <div className="mobile-meal-section-body">
+        {slotNote && !editingNote && (
+          <div
+            onClick={openNoteEditor}
+            style={{ fontSize: '12px', color: 'var(--color-muted)', fontStyle: 'italic', cursor: 'pointer', marginBottom: '6px', whiteSpace: 'pre-wrap' }}
+            title="Notiz bearbeiten"
+          >
+            📝 {slotNote.note}
+          </div>
+        )}
+        {editingNote && (
+          <input
+            className="input"
+            type="text"
+            autoFocus
+            value={noteText}
+            placeholder="Notiz…"
+            onChange={e => setNoteText(e.target.value)}
+            onKeyDown={handleNoteKeyDown}
+            onBlur={saveNote}
+            style={{ width: '100%', padding: '4px 6px', fontSize: '13px', marginBottom: '6px' }}
+          />
+        )}
+        {mealEntries.length === 0 ? (
+          <div
+            className="mobile-empty-slot"
+            onClick={() => toggleSlotDisabled(date, type)}
+            style={{ cursor: 'pointer' }}
+            title={isSlotDisabled ? 'Slot aktivieren' : 'Slot deaktivieren (z.B. auswärts essen)'}
+          >
+            {isSlotDisabled ? '✗' : '—'}
+          </div>
+        ) : (
+          mealEntries.map(entry => {
+            const meal = allMealsForActivePlan.find(m => m.id === entry.mealId);
+            if (!meal) return null;
+            return <MobileMealItem key={entry.id} entry={entry} meal={meal} />;
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) => {
   const { activePlan, allMealsForActivePlan, toggleSlotDisabled } = useMealPlan();
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -272,36 +364,17 @@ export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) =>
                 );
 
                 return (
-                  <div key={type} className="mobile-meal-section" style={{ opacity: mealEntries.length === 0 && isSlotDisabled ? 0.4 : undefined }}>
-                    <div className="mobile-meal-section-header">
-                      <span>{label}</span>
-                      <button
-                        className="mobile-add-btn"
-                        onClick={() => onAddRequest(date, type)}
-                        title={`${label} hinzufügen`}
-                      >
-                        +
-                      </button>
-                    </div>
-                    <div className="mobile-meal-section-body">
-                      {mealEntries.length === 0 ? (
-                        <div
-                          className="mobile-empty-slot"
-                          onClick={() => toggleSlotDisabled(date, type)}
-                          style={{ cursor: 'pointer' }}
-                          title={isSlotDisabled ? 'Slot aktivieren' : 'Slot deaktivieren (z.B. auswärts essen)'}
-                        >
-                          {isSlotDisabled ? '✗' : '—'}
-                        </div>
-                      ) : (
-                        mealEntries.map(entry => {
-                          const meal = allMealsForActivePlan.find(m => m.id === entry.mealId);
-                          if (!meal) return null;
-                          return <MobileMealItem key={entry.id} entry={entry} meal={meal} />;
-                        })
-                      )}
-                    </div>
-                  </div>
+                  <MobileMealSection
+                    key={type}
+                    date={date}
+                    type={type}
+                    label={label}
+                    mealEntries={mealEntries}
+                    allMealsForActivePlan={allMealsForActivePlan}
+                    isSlotDisabled={isSlotDisabled}
+                    onAddRequest={onAddRequest}
+                    toggleSlotDisabled={toggleSlotDisabled}
+                  />
                 );
               })}
 

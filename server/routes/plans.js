@@ -288,13 +288,20 @@ router.put('/:planId/entries/:entryId', (req, res) => {
     }
 
     const { servings, enabled } = req.body;
+    const newEnabled = enabled !== undefined ? (enabled ? 1 : 0) : entry.enabled;
     db.prepare(
       'UPDATE meal_plan_entries SET servings = ?, enabled = ? WHERE id = ?'
     ).run(
       servings !== undefined ? servings : entry.servings,
-      enabled !== undefined ? (enabled ? 1 : 0) : entry.enabled,
+      newEnabled,
       entry.id
     );
+
+    // Keep the nutrition report in sync: ✗ (enabled 0) means "cooked". Un-marking it (✗ -> ✓)
+    // removes the entry from the log; re-marking re-adds it on the next reconcile.
+    if (newEnabled === 1) {
+      db.prepare('DELETE FROM nutrition_logs WHERE entry_id = ? AND user_id = ?').run(entry.id, req.userId);
+    }
 
     const row = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ?').get(entry.id);
     res.json(rowToEntry(row));
@@ -318,6 +325,10 @@ router.delete('/:planId/entries/:entryId', (req, res) => {
   }
 
   db.prepare('DELETE FROM meal_plan_entries WHERE id = ?').run(entry.id);
+  // Deleting a single entry should remove it from the nutrition report too. (Whole-plan
+  // deletion cascades entries at the DB level and does NOT pass through here, so historical
+  // logs still survive plan cleanup — the agreed "bleiben" behavior.)
+  db.prepare('DELETE FROM nutrition_logs WHERE entry_id = ? AND user_id = ?').run(entry.id, req.userId);
   res.json({ ok: true });
 });
 

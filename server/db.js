@@ -350,4 +350,64 @@ if (version < 17) {
   console.log('✓ Migration v17 complete');
 }
 
+if (version < 18) {
+  console.log('Running migration v18: pantry + fresh ingredients...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('pantry_staples')) {
+    db.exec('ALTER TABLE users ADD COLUMN pantry_staples TEXT');
+  }
+  if (!userCols.includes('fresh_ingredients')) {
+    db.exec('ALTER TABLE users ADD COLUMN fresh_ingredients TEXT');
+  }
+  db.pragma('user_version = 18');
+  console.log('✓ Migration v18 complete');
+}
+
+if (version < 19) {
+  console.log('Running migration v19: nutrition log toggle + nutrition_logs table...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('nutrition_log_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN nutrition_log_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  // Immutable snapshot log: only user_id cascades. meal_id/entry_id/plan_id are plain
+  // columns (no FK), and meal_name + nutrition_per_serving are denormalized copies, so a
+  // log row survives deletion of the plan, entry, or recipe it came from.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nutrition_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      plan_id INTEGER NOT NULL,
+      entry_id INTEGER NOT NULL,
+      meal_id TEXT,
+      meal_name TEXT,
+      date TEXT NOT NULL,
+      meal_type TEXT,
+      servings INTEGER NOT NULL,
+      persons INTEGER NOT NULL,
+      nutrition_per_serving TEXT,
+      logged_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, entry_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_nutrition_logs_user_date ON nutrition_logs(user_id, date);
+  `);
+  db.pragma('user_version = 19');
+  console.log('✓ Migration v19 complete');
+}
+
+if (version < 20) {
+  console.log('Running migration v20: monthly report notification log...');
+  // Idempotency for the monthly push. Push is a single broadcast (not per-user), so one row
+  // per month. If per-user email is added later, switch to UNIQUE(month, user_id).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS report_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      month TEXT NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(month)
+    );
+  `);
+  db.pragma('user_version = 20');
+  console.log('✓ Migration v20 complete');
+}
+
 export default db;

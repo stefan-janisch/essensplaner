@@ -7,16 +7,97 @@ import { MealPlanTable } from './components/MealPlanTable';
 import { MenuPlanTable } from './components/MenuPlanTable';
 import { MealPlanOverview } from './components/MealPlanOverview';
 import { RecipeManagement } from './components/RecipeManagement';
+import { CookFromPantry } from './components/CookFromPantry';
 import { PlanViewLayout } from './components/PlanViewLayout';
 import { AdminPanel } from './components/AdminPanel';
 import { UserSettings } from './components/UserSettings';
+import { MonthlyNutritionReport } from './components/MonthlyNutritionReport';
+import { useIsMobile } from './hooks/useIsMobile';
 import type { PlanType } from './types/index.js';
 import './App.css';
 
-type AppView = 'overview' | 'planner' | 'recipes' | 'menuplan' | 'admin' | 'settings';
+type AppView = 'overview' | 'planner' | 'recipes' | 'cook' | 'menuplan' | 'admin' | 'settings' | 'bericht';
+
+interface NavItem {
+  view: AppView;
+  label: string;
+  isActive: (v: AppView) => boolean;
+  show: boolean;
+}
 
 function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNavigate: (view: AppView) => void }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const navItems: NavItem[] = [
+    { view: 'overview', label: 'Pläne', isActive: v => v === 'overview' || v === 'planner' || v === 'menuplan', show: true },
+    { view: 'recipes', label: 'Rezepte', isActive: v => v === 'recipes', show: true },
+    { view: 'cook', label: 'Was kann ich kochen?', isActive: v => v === 'cook', show: true },
+    { view: 'bericht', label: 'Bericht', isActive: v => v === 'bericht', show: true },
+    { view: 'admin', label: 'Admin', isActive: v => v === 'admin', show: !!user?.isAdmin },
+  ];
+
+  if (isMobile) {
+    const selectView = (view: AppView) => {
+      onNavigate(view);
+      setMenuOpen(false);
+    };
+
+    return (
+      <header className="app-header">
+        <h1
+          className="app-header-title"
+          style={{ cursor: 'pointer' }}
+          onClick={() => onNavigate('overview')}
+        >
+          Essensplaner
+        </h1>
+        <button
+          className="app-header-hamburger"
+          onClick={() => setMenuOpen(true)}
+          aria-label="Menü öffnen"
+        >
+          ☰
+        </button>
+
+        {menuOpen && (
+          <>
+            <div className="app-drawer-overlay" onClick={() => setMenuOpen(false)} />
+            <nav className="app-drawer">
+              <button
+                className="app-drawer-close"
+                onClick={() => setMenuOpen(false)}
+                aria-label="Menü schließen"
+              >
+                ✕
+              </button>
+              {navItems.filter(item => item.show).map(item => (
+                <button
+                  key={item.view}
+                  className={item.isActive(currentView) ? 'app-drawer-item active' : 'app-drawer-item'}
+                  onClick={() => selectView(item.view)}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <button
+                className={currentView === 'settings' ? 'app-drawer-item active' : 'app-drawer-item'}
+                onClick={() => selectView('settings')}
+              >
+                Einstellungen
+              </button>
+              <div className="app-drawer-divider" />
+              <div className="app-drawer-email">{user?.email}</div>
+              <button className="app-drawer-item" onClick={() => { setMenuOpen(false); logout(); }}>
+                Abmelden
+              </button>
+            </nav>
+          </>
+        )}
+      </header>
+    );
+  }
 
   return (
     <header className="app-header">
@@ -28,26 +109,15 @@ function AppHeader({ currentView, onNavigate }: { currentView: AppView; onNaviga
         >
           Essensplaner
         </h1>
-        <button
-          className={`btn btn-ghost btn-sm ${currentView === 'overview' || currentView === 'planner' || currentView === 'menuplan' ? 'btn-nav-active' : ''}`}
-          onClick={() => onNavigate('overview')}
-        >
-          Pläne
-        </button>
-        <button
-          className={`btn btn-ghost btn-sm ${currentView === 'recipes' ? 'btn-nav-active' : ''}`}
-          onClick={() => onNavigate('recipes')}
-        >
-          Rezepte
-        </button>
-        {user?.isAdmin && (
+        {navItems.filter(item => item.show).map(item => (
           <button
-            className={`btn btn-ghost btn-sm ${currentView === 'admin' ? 'btn-nav-active' : ''}`}
-            onClick={() => onNavigate('admin')}
+            key={item.view}
+            className={`btn btn-ghost btn-sm ${item.isActive(currentView) ? 'btn-nav-active' : ''}`}
+            onClick={() => onNavigate(item.view)}
           >
-            Admin
+            {item.label}
           </button>
-        )}
+        ))}
       </div>
       <div className="app-header-user">
         <span>{user?.email}</span>
@@ -113,10 +183,15 @@ function useShareJoin(onJoined: (planId: number) => void) {
   return { status, errorMsg };
 }
 
-function parseHash(hash: string): { view: AppView; planId?: number } {
+function parseHash(hash: string): { view: AppView; planId?: number; reportMonth?: string } {
   if (hash === '#rezepte') return { view: 'recipes' };
+  if (hash === '#kochen') return { view: 'cook' };
   if (hash === '#admin') return { view: 'admin' };
   if (hash === '#einstellungen') return { view: 'settings' };
+  if (hash.startsWith('#bericht')) {
+    const m = hash.split('/')[1];
+    return { view: 'bericht', reportMonth: /^\d{4}-\d{2}$/.test(m || '') ? m : undefined };
+  }
   if (hash.startsWith('#menuplan')) {
     const id = parseInt(hash.split('/')[1]);
     return { view: 'menuplan', planId: id || undefined };
@@ -131,10 +206,13 @@ function parseHash(hash: string): { view: AppView; planId?: number } {
 function AuthenticatedAppInner() {
   const { selectPlan, state } = useMealPlan();
   const [view, setViewState] = useState<AppView>(() => parseHash(window.location.hash).view);
+  const [reportMonth, setReportMonth] = useState<string | undefined>(() => parseHash(window.location.hash).reportMonth);
 
   const setView = useCallback((v: AppView, planId?: number) => {
     setViewState(v);
     if (v === 'recipes') window.location.hash = '#rezepte';
+    else if (v === 'cook') window.location.hash = '#kochen';
+    else if (v === 'bericht') window.location.hash = '#bericht';
     else if (v === 'settings') window.location.hash = '#einstellungen';
     else if (v === 'admin') window.location.hash = '#admin';
     else if (v === 'menuplan' && planId) window.location.hash = `#menuplan/${planId}`;
@@ -152,8 +230,9 @@ function AuthenticatedAppInner() {
   // Listen for browser back/forward
   useEffect(() => {
     const onHashChange = () => {
-      const { view, planId } = parseHash(window.location.hash);
+      const { view, planId, reportMonth } = parseHash(window.location.hash);
       setViewState(view);
+      setReportMonth(reportMonth);
       if (planId) selectPlan(planId);
     };
     window.addEventListener('hashchange', onHashChange);
@@ -195,6 +274,10 @@ function AuthenticatedAppInner() {
         <AdminPanel />
       ) : view === 'recipes' ? (
         <RecipeManagement />
+      ) : view === 'cook' ? (
+        <CookFromPantry />
+      ) : view === 'bericht' ? (
+        <MonthlyNutritionReport month={reportMonth} />
       ) : view === 'menuplan' ? (
         <PlanViewLayout onBack={() => setView('overview')} planType="menu"><MenuPlanTable /></PlanViewLayout>
       ) : (

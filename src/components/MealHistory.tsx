@@ -6,6 +6,9 @@ import { getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
 import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
 import type { SortBy, RatingComparator } from '../utils/mealFilters';
+import { computeMissingIngredients, normalizeIngredientName } from '../utils/ingredientMatch';
+import { IngredientChipInput } from './IngredientChipInput';
+import { INGREDIENT_GROUP_LABELS } from '../constants/ingredientGroups';
 import type { Meal, MealType, MealPlanEntry, NutritionInfo } from '../types/index.js';
 import { calculateOptimalMultiplier, getPerMealTargets, NUTRITION_KEYS } from '../utils/nutritionColors';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
@@ -112,7 +115,7 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
 };
 
 export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, onCancelTap, nutritionGap }) => {
-  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal, nutritionTargets, mealsPerDay } = useMealPlan();
+  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal, nutritionTargets, mealsPerDay, pantryStaples, setPantryStaples, freshIngredients, setFreshIngredients } = useMealPlan();
   const [searchQuery, setSearchQuery] = useState('');
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -121,7 +124,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
   const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
-  const [sortBy, setSortBy] = useState<SortBy>('name');
+  const [sortBy, setSortBy] = useState<SortBy>('score');
   const [minProtein, setMinProtein] = useState<number | ''>('');
   const [showFilters, setShowFilters] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
@@ -129,10 +132,12 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const [showNutritionIndicators, setShowNutritionIndicators] = useState(true);
   const [smartMode, setSmartMode] = useState(false);
   const [nutriFitMode, setNutriFitMode] = useState(false);
+  const [vorratMode, setVorratMode] = useState(false);
+  const [showVorratEdit, setShowVorratEdit] = useState(false);
   const [randomIds, setRandomIds] = useState<string[] | null>(null);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
-    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'name' ? 1 : 0)
+    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'score' ? 1 : 0)
     + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0) + (minProtein !== '' ? 1 : 0);
 
   const categories = useMemo(() =>
@@ -148,7 +153,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   );
 
   const sortedMeals = useMemo(() =>
-    sortMeals(filteredMeals, sortBy, { pinStarred: true }),
+    sortMeals(filteredMeals, sortBy),
     [filteredMeals, sortBy]
   );
 
@@ -184,9 +189,39 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
     return scores;
   }, [nutriFitMode, nutritionGap, state.meals, nutritionTargets, mealsPerDay]);
 
+  // "Aus Vorrat" — ingredient vocabulary for autocomplete + missing-ingredient map
+  const ingredientSuggestions = useMemo(() => {
+    const byNorm = new Map<string, string>();
+    for (const meal of state.meals) {
+      const ings = meal.shoppingIngredients?.length ? meal.shoppingIngredients : meal.ingredients;
+      for (const ing of ings) {
+        if (ing.unit === 'NB' || ing.unit === 'Nach Belieben') continue;
+        const norm = normalizeIngredientName(ing.name);
+        if (norm && !byNorm.has(norm)) byNorm.set(norm, ing.name.trim());
+      }
+    }
+    const names = [...byNorm.values()].sort((a, b) => a.localeCompare(b));
+    return [...INGREDIENT_GROUP_LABELS, ...names];
+  }, [state.meals]);
+
+  const haveNames = useMemo(() => [...pantryStaples, ...freshIngredients], [pantryStaples, freshIngredients]);
+
+  const vorratMissingMap = useMemo(() => {
+    if (!vorratMode || haveNames.length === 0) return null;
+    return computeMissingIngredients(filteredMeals, haveNames);
+  }, [vorratMode, filteredMeals, haveNames]);
+
   const displayMeals = useMemo(() => {
     if (randomIds) {
       return randomIds.map(id => state.meals.find(m => m.id === id)).filter(Boolean) as Meal[];
+    }
+    if (vorratMode && vorratMissingMap) {
+      return [...filteredMeals].sort((a, b) => {
+        const am = vorratMissingMap.get(a.id)?.missingCount ?? Infinity;
+        const bm = vorratMissingMap.get(b.id)?.missingCount ?? Infinity;
+        if (am !== bm) return am - bm;
+        return a.name.localeCompare(b.name);
+      });
     }
     if (nutriFitMode && nutriFitScores) {
       return [...filteredMeals].sort((a, b) => (nutriFitScores.get(a.id) ?? Infinity) - (nutriFitScores.get(b.id) ?? Infinity));
@@ -200,7 +235,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         if (aExtra !== bExtra) return aExtra - bExtra;
         return a.name.localeCompare(b.name);
       });
-  }, [randomIds, smartMode, nutriFitMode, nutriFitScores, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals]);
+  }, [randomIds, smartMode, nutriFitMode, nutriFitScores, vorratMode, vorratMissingMap, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals]);
 
   const pickRandom = useCallback(() => {
     const pool = filteredMeals.length > 3 ? filteredMeals : state.meals;
@@ -251,12 +286,19 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         {planEntries.length > 0 && (
           <button
             className={`pill ${smartMode ? 'pill-active' : ''}`}
-            onClick={() => { setSmartMode(!smartMode); setRandomIds(null); }}
+            onClick={() => { setSmartMode(!smartMode); setVorratMode(false); setNutriFitMode(false); setRandomIds(null); }}
             style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
           >
             🧩 Passt zum Plan
           </button>
         )}
+        <button
+          className={`pill ${vorratMode ? 'pill-active' : ''}`}
+          onClick={() => { setVorratMode(!vorratMode); setSmartMode(false); setNutriFitMode(false); setRandomIds(null); }}
+          style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
+        >
+          🥕 Aus Vorrat
+        </button>
         <button
           className={`pill ${randomIds ? 'pill-active' : ''}`}
           onClick={() => { if (randomIds) { setRandomIds(null); } else { pickRandom(); } }}
@@ -267,13 +309,50 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         {nutritionGap && (
           <button
             className={`pill ${nutriFitMode ? 'pill-active' : ''}`}
-            onClick={() => { setNutriFitMode(!nutriFitMode); setSmartMode(false); setRandomIds(null); }}
+            onClick={() => { setNutriFitMode(!nutriFitMode); setSmartMode(false); setVorratMode(false); setRandomIds(null); }}
             style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
           >
             🎯 Nährstoff-Fit
           </button>
         )}
       </div>
+
+      {vorratMode && (
+        <div style={{ marginBottom: '8px' }}>
+          {haveNames.length === 0 && (
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+              Trage ein, was du daheim hast.
+            </div>
+          )}
+          <button
+            className="btn-ghost"
+            onClick={() => setShowVorratEdit(!showVorratEdit)}
+            style={{ fontSize: '12px', padding: '2px 6px', color: 'var(--accent)', width: '100%', textAlign: 'left' }}
+          >
+            {showVorratEdit ? '▾' : '▸'} Vorrat bearbeiten{haveNames.length > 0 ? ` (${haveNames.length})` : ''}
+          </button>
+          {showVorratEdit && (
+            <div style={{ marginTop: '6px', padding: '8px', background: 'var(--surface-0)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+              <IngredientChipInput
+                label="Vorratskammer"
+                icon="🥫"
+                items={pantryStaples}
+                suggestions={ingredientSuggestions}
+                placeholder="Mehl, Zucker, Reis..."
+                onChange={setPantryStaples}
+              />
+              <IngredientChipInput
+                label="Frische Zutaten"
+                icon="🥬"
+                items={freshIngredients}
+                suggestions={ingredientSuggestions}
+                placeholder="Tomaten, Hähnchen..."
+                onChange={setFreshIngredients}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <input
         className="input"
@@ -338,6 +417,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                 <option value="90">≤ 90 Min.</option>
               </select>
               <select className="input" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} style={{ flex: 1, fontSize: '11px', padding: '4px 6px' }}>
+                <option value="score">Nährwert-Score ↓</option>
                 <option value="name">A-Z</option>
                 <option value="rating">Bewertung</option>
                 <option value="newest">Neueste</option>
@@ -429,8 +509,19 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {displayMeals.map(meal => {
               const info = additionalIngredientsMap?.get(meal.id);
+              const vorratInfo = vorratMissingMap?.get(meal.id);
               return (
                 <div key={meal.id}>
+                  {vorratMode && vorratInfo && (
+                    <div
+                      style={{ fontSize: '11px', marginBottom: '3px', padding: '2px 8px', color: vorratInfo.missingCount === 0 ? 'var(--color-success)' : 'var(--text-muted)' }}
+                      title={vorratInfo.missingCount > 0 ? `Fehlt: ${vorratInfo.missing.join(', ')}` : 'Alle Zutaten vorhanden'}
+                    >
+                      {vorratInfo.missingCount === 0
+                        ? '✓ Kannst du kochen!'
+                        : `+${vorratInfo.missingCount} ${vorratInfo.missingCount === 1 ? 'fehlt' : 'fehlen'} · ${vorratInfo.missing.slice(0, 3).join(', ')}${vorratInfo.missing.length > 3 ? ' …' : ''}`}
+                    </div>
+                  )}
                   {smartMode && info && (
                     <div
                       style={{ fontSize: '11px', marginBottom: '3px', padding: '2px 8px', color: info.extra === 0 ? 'var(--color-success)' : 'var(--text-muted)' }}

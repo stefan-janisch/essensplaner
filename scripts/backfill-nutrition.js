@@ -11,6 +11,7 @@ import { readFileSync } from 'fs';
 import toml from '@iarna/toml';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { MICRO_PROMPT_FRAGMENT, MICRO_KEYS, parseMicros } from '../server/nutritionMicros.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
@@ -23,13 +24,29 @@ db.pragma('journal_mode = WAL');
 const config = toml.parse(readFileSync(join(rootDir, 'openai_credentials.toml'), 'utf-8'));
 const openai = new OpenAI({ apiKey: config.key });
 
-const meals = db.prepare(`
-  SELECT id, name, ingredients, default_servings, user_id
+// Meals are candidates if they have no nutrition yet, OR have macros but are missing the
+// micronutrient fields (added later). The JSON-key check is done in JS below.
+const allMeals = db.prepare(`
+  SELECT id, name, ingredients, default_servings, user_id, nutrition_per_serving, tags
   FROM meals
-  WHERE nutrition_per_serving IS NULL AND ingredients != '[]' AND ingredients IS NOT NULL
+  WHERE ingredients != '[]' AND ingredients IS NOT NULL
 `).all();
 
-console.log(`Found ${meals.length} meals without nutrition estimates.\n`);
+function needsEstimation(meal) {
+  if (!meal.nutrition_per_serving) return true;
+  let nutrition;
+  try {
+    nutrition = JSON.parse(meal.nutrition_per_serving);
+  } catch {
+    return true;
+  }
+  // Re-estimate if any micro field is missing (e.g. estimated before micros existed).
+  return MICRO_KEYS.some(m => nutrition[m.key] === undefined);
+}
+
+const meals = allMeals.filter(needsEstimation);
+
+console.log(`Found ${meals.length} meals needing (re-)estimation (incl. missing micronutrients).\n`);
 
 const updateStmt = db.prepare('UPDATE meals SET nutrition_per_serving = ? WHERE id = ?');
 const updateTagsStmt = db.prepare('UPDATE meals SET nutrition_per_serving = ?, tags = ? WHERE id = ?');
@@ -49,7 +66,7 @@ for (const meal of meals) {
     }).join('\n');
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-5.2',
       messages: [
         {
           role: 'system',
@@ -68,8 +85,9 @@ Gib das Ergebnis als JSON zurück:
   - "kalorienarm": wenn ≤ 500 kcal und fettarm
   - "gesund": ausgewogenes Verhältnis, reich an Ballaststoffen/Gemüse
 
-Runde alle Nährwerte auf ganze Zahlen.
-Antworte NUR mit dem JSON-Objekt.`
+Runde die Makro-Nährwerte (kcal, protein, carbs, fat, fiber, sugar) auf ganze Zahlen.
+Antworte NUR mit dem JSON-Objekt.
+${MICRO_PROMPT_FRAGMENT}`
         },
         { role: 'user', content: `Zutaten für 1 Portion "${meal.name}":\n${ingredientList}` }
       ],
@@ -86,6 +104,8 @@ Antworte NUR mit dem JSON-Objekt.`
       fat: Math.round(Math.max(0, Number(parsed.fat) || 0)),
       fiber: Math.round(Math.max(0, Number(parsed.fiber) || 0)),
       sugar: Math.round(Math.max(0, Number(parsed.sugar) || 0)),
+      // Background-only micronutrients (vitamins + trace elements).
+      ...parseMicros(parsed),
     };
 
     // Auto-tagging

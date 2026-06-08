@@ -71,6 +71,26 @@
 
 - [x] Gesamtbewertung Nährwerrte Rezepte: Sollte auf Idealportion bezogen sein.
 
+- [x] Beim Parsen, egal aus welcher Quelle, sollten Informationen wie "Make-ahead" oder "Storage" oder Alternativen erkannt und am Ende des Rezepttextes  mit jeweiliger Überschrift ausgegeben werden.
+
+- [x] Überarbeite die KI Prompts. In der User-facing UZutatenliste sollten Zutaten wire Salz und Pfeffer nicht entfernt werden, nur in der Einkaufslistenseitigen Zutatenliste. Außerdem sollten alle volumetrischen Einheiten in Gewichtseinheiten umgerechnet werden. Überlege dir, ob zur Umrechnung der Einheiten ein eigener API Call sinnvoll ist, damit die Umrechnungen in einer Datenbank gespeichert werden können und nicht jedes Mal neu berechnet werden müssen. Ich bilde mir ein, es gibt für die Einkaufsliste schon eine änhliche Datenbank. Sieh dir das an.
+
+- [x] Ich möchte ein optionales Log pro User (ein-/ausschaltbar in den Einstellungen). Es soll alle abgehakten Rezepte und Portionsgrößen, normalisiert auf die Anzahl der Personen im jeweiligen Plan, enthalten. So könnte man am Ende jedes Monats einen Bericht generieren, der die Nährstoffaufnahme des Monats zusammenfasst. Ich möchte die Nährstoffe der Rezepte um Vitamine und Spurenelemente erweitern. Diese sollen nicht in der UI aufscheinen, aber im Hintergrund mitgeloggt werden. Du solltest die Vitamin- und Spurenelementeroutine ausführlch testen, damit sie plausible Werte ausspuckt. Brainstorme zunächst mit mir, welche Vitamine und andere Nährstoffe noch fehlen, implementiere dann die Erweiterung der Nährstoffe und dann das Log. Um die Berichtslegung kümmern wir uns in einem nächsten Schritt.
+
+- [x] Lass uns an einer Berichtsfunktion arbeiten, die auf dem Log basiert. Es soll einen Monatsbericht geben, der die Nährstoffaufnahme des Monats zusammenfasst und mögliche Mängel aufzeigt. Er soll also sowohl Makros als auch Mikros abdecken. Überlege dir, welche Informationen in so einem Bericht sinnvoll wären und wie wir sie am besten visualisieren können. Dafür sollte es einen eigenen Tab auf der Website geben, wo der User sich jederzeit über den laufenden Monat und vergangene informieren kann. Außerdem soll einmal monatlich eine Benachrichtigung mit einem Link zum aktuellen Monatsbericht verschickt werden. In /opt gibt es einen Nachrichtenservice, den du dafür nutzen kannst.
+
+- [x] Ich möchte einige Funktionen zum Skalieren von Rezeptmengen direkt in der Rezeptansicht hinzufügen:
+    - Die Anzahl der Personen, für die das Rezept gedacht ist, soll editierbar sein. Die Zutatenmengen passen sich dann automatisch an.
+    - Jede Zutatenmenge soll per Klick editierbar sein. Die restlichen Zutatenmengen passen sich dann automatisch an (Use-case: Ich habe genau 500 g Zucchini, und möchte wissen, wie ich die anderen Zutaten anpassen muss, um die Zucchini komplett zu verbrauchen).
+    - Ein Klick auf "Empfohlene Portionsgröße: X× (XXX kcal) — klicken zum Anwenden" unten in der Nährstoffansicht soll die empfohlene Portionsgröße, multipliziert mit der Anzahl Personen im aktuellen Meal Plan, auf die Zutatenmengen anwenden.
+    - Beim Schließen des Rezeptes soll der User gefragt werden, ob er die geänderte Menge in den jeweiligen Meal Plan-Eintrag übernehmen oder verwerfen möchte.
+
+- [x] Füge der Rezeptansicht eine ausklappbare Detailansicht zu den Nährwerten hinzu, die die Vitamine etc. enthält.
+
+- [x] Wir haben ja bereits Nährwerte für die Rezepte hinterlegt. Überlege dir einen sinnvollen Nutritional Score von 0-100 für die Rezepte, der auf den Nährwerten basiert. Dann implementiere die Möglichkeit, die Rezepte danach zu sortieren.
+
+- [x] Favoriten sollten in der Rezepte Sidebar nicht automatisch immer ganz oben angezeigt werden. Sortiere standardmäßig nach Nutritional Score
+
 - [ ] Meal Plan Auto-Optimizer
   Ein Button im Meal Plan, der für alle Einträge eines Tages die Portionsgrößen
   gleichzeitig optimiert — nicht einzeln pro Rezept, sondern so dass die

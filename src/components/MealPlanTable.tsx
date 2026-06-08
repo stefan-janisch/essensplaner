@@ -7,6 +7,7 @@ import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
 import { DayNutritionDot } from './DayNutritionDot';
 import { MenuAddContext } from './PlanViewLayout';
+import { useSlotNote } from '../hooks/useSlotNote';
 
 export interface MealCellItemProps {
   entry: MealPlanEntry;
@@ -118,7 +119,7 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
       ) : (
         <div style={{ fontSize: '11px', color: 'var(--text)', textAlign: 'center' }}>
           <span onClick={handleEditServings} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
-            {entry.servings} Portion{entry.servings !== 1 ? 'en' : ''}
+            {Number(entry.servings.toFixed(1))} Portion{entry.servings !== 1 ? 'en' : ''}
           </span>
           {' · '}
           <span onClick={handleRemove} style={{ cursor: 'pointer', color: 'var(--color-danger)' }}>
@@ -131,6 +132,7 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
         <RecipeDetailModal
           meal={meal}
           servings={entry.servings}
+          entryId={entry.id}
           onClose={() => setShowRecipeCard(false)}
           onEdit={() => { setShowRecipeCard(false); setShowEdit(true); }}
           onToggleStar={() => toggleMealStar(meal.id)}
@@ -154,7 +156,7 @@ interface MealCellProps {
 }
 
 const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
-  const { allMealsForActivePlan, activePlan, toggleSlotDisabled, setSlotNote } = useMealPlan();
+  const { allMealsForActivePlan, activePlan, toggleSlotDisabled } = useMealPlan();
   const onAddRequest = useContext(MenuAddContext);
 
   const entries = (activePlan?.entries || []).filter(
@@ -165,39 +167,8 @@ const MealCell: React.FC<MealCellProps> = ({ date, mealType }) => {
     s => s.date === date && s.mealType === mealType
   );
 
-  const slotNote = (activePlan?.slotNotes || []).find(
-    n => n.date === date && n.mealType === mealType
-  );
-
-  const [editingNote, setEditingNote] = useState(false);
-  const [noteText, setNoteText] = useState('');
-  const cancelNoteRef = React.useRef(false);
-
-  const openNoteEditor = () => {
-    cancelNoteRef.current = false;
-    setNoteText(slotNote?.note ?? '');
-    setEditingNote(true);
-  };
-
-  const saveNote = () => {
-    if (cancelNoteRef.current) {
-      cancelNoteRef.current = false;
-      setEditingNote(false);
-      return;
-    }
-    setSlotNote(date, mealType, noteText);
-    setEditingNote(false);
-  };
-
-  const handleNoteKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveNote();
-    } else if (e.key === 'Escape') {
-      cancelNoteRef.current = true;
-      setEditingNote(false);
-    }
-  };
+  const { slotNote, editingNote, noteText, setNoteText, openNoteEditor, saveNote, handleNoteKeyDown } =
+    useSlotNote(date, mealType);
 
   const { setNodeRef, isOver } = useDroppable({
     id: `${date}-${mealType}`,

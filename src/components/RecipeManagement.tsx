@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeForm } from './RecipeForm';
 import { ModalPortal } from './Modal';
@@ -12,6 +13,7 @@ import { RecipeChat } from './RecipeChat';
 import { NutritionTable } from './NutritionTable';
 import { RecipeNutritionDots, useRecipeNutritionColors } from './RecipeNutritionIndicator';
 import { COLOR_HEX } from '../utils/nutritionColors';
+import { computeNutritionScore, getScoreColor } from '../utils/nutritionScore';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -62,6 +64,7 @@ export function RecipeCard({
 }) {
   const nutritionColors = useRecipeNutritionColors(meal);
   const borderStyle = nutritionColors && !hideNutrition ? { borderBottom: `3px solid ${COLOR_HEX[nutritionColors.overall]}` } : {};
+  const score = computeNutritionScore(meal.nutritionPerServing);
 
   return (
     <div className="recipe-card" onClick={!dragHandleProps && onView ? onView : undefined} style={{ ...borderStyle, ...(selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : {}), cursor: !dragHandleProps && onView ? 'pointer' : undefined }}>
@@ -76,6 +79,10 @@ export function RecipeCard({
           <div className="recipe-card-photo-placeholder">🍽️</div>
         )}
         {!hideNutrition && <RecipeNutritionDots meal={meal} />}
+        {!hideNutrition && score !== null && (
+          <span className="recipe-score-badge" style={{ backgroundColor: COLOR_HEX[getScoreColor(score)] }}
+            title={`Nährwert-Score: ${score}/100`}>{score}</span>
+        )}
         {onToggleSelect && (
           <input
             type="checkbox"
@@ -143,7 +150,43 @@ export function RecipeCard({
   );
 }
 
+// Detect markdown markers that the legacy plain-text format does NOT use.
+// Numbered steps ("1.") are excluded on purpose — legacy recipes rely on them.
+function looksLikeMarkdown(text: string): boolean {
+  return /^#{1,6}\s/m.test(text)      // ATX headings (## Aufbewahrung)
+    || /\*\*[^*\n]+\*\*/.test(text)   // bold
+    || /^[-*]\s+/m.test(text);        // bullet lists
+}
+
+// Markdown rendering for recipeText, styled to match the app's look.
+function MarkdownRecipeText({ text }: { text: string }) {
+  const heading: React.CSSProperties = { fontWeight: 700, color: 'var(--text-h)', marginTop: '16px', marginBottom: '6px' };
+  return (
+    <div style={{ margin: '8px 0', fontSize: '14px', color: 'var(--text)', textAlign: 'left', lineHeight: 1.5 }}>
+      <ReactMarkdown
+        components={{
+          h1: ({ children }) => <div style={heading}>{children}</div>,
+          h2: ({ children }) => <div style={heading}>{children}</div>,
+          h3: ({ children }) => <div style={heading}>{children}</div>,
+          p: ({ children }) => <p style={{ margin: '0 0 12px' }}>{children}</p>,
+          ul: ({ children }) => <ul style={{ margin: '0 0 12px', paddingLeft: '20px' }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ margin: '0 0 12px', paddingLeft: '20px' }}>{children}</ol>,
+          li: ({ children }) => <li style={{ marginBottom: '4px' }}>{children}</li>,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+// Renders recipeText: markdown when markers are present, otherwise the legacy
+// plain-text formatter (backward compatible with existing recipes).
 function FormattedRecipeText({ text }: { text: string }) {
+  return looksLikeMarkdown(text) ? <MarkdownRecipeText text={text} /> : <LegacyRecipeText text={text} />;
+}
+
+function LegacyRecipeText({ text }: { text: string }) {
   const blocks = text.split(/\n\n+/);
 
   // Pre-classify blocks: a short non-numbered block followed by a block with numbered lines is a heading
@@ -203,9 +246,16 @@ function FormattedRecipeText({ text }: { text: string }) {
   );
 }
 
+// Formats a (possibly fractional) servings count for display: ≤1 decimal, German comma.
+function formatServings(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)).replace('.', ',');
+}
+
 export function RecipeDetailModal({
   meal,
   servings,
+  entryId,
   onClose,
   onEdit,
   onDuplicate,
@@ -214,17 +264,17 @@ export function RecipeDetailModal({
 }: {
   meal: Meal;
   servings?: number;
+  entryId?: number;
   onClose: () => void;
   onEdit?: () => void;
   onDuplicate?: () => void;
   onToggleStar?: () => void;
   onSetRating?: (rating: number) => void;
 }) {
-  const { updateMeal, activePlan } = useMealPlan();
+  const { updateMeal, activePlan, defaultServings, updateEntryServings } = useMealPlan();
   const [duplicating, setDuplicating] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
   const [commentText, setCommentText] = useState(meal.comment || '');
-  const [usePlanTotal, setUsePlanTotal] = useState(false);
 
   const planEntriesForMeal = (activePlan?.entries || []).filter(
     e => e.mealId === meal.id && e.enabled
@@ -232,8 +282,32 @@ export function RecipeDetailModal({
   const planOccurrences = planEntriesForMeal.length;
   const planTotalServings = planEntriesForMeal.reduce((sum, e) => sum + e.servings, 0);
   const baseServings = servings ?? meal.defaultServings;
+
+  // Shared scale state: multiplier relative to meal.defaultServings.
+  // scale = 1 → ingredient amounts as stored; displayServings = defaultServings.
+  const initialScale = baseServings / meal.defaultServings;
+  const [scale, setScale] = useState(initialScale);
+  const [dirty, setDirty] = useState(false);
+  const [editingIngredientIndex, setEditingIngredientIndex] = useState<number | null>(null);
+  const [ingredientDraft, setIngredientDraft] = useState('');
+  const [servingsDraft, setServingsDraft] = useState('');
+  const [editingServings, setEditingServings] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+
+  const displayServings = scale * meal.defaultServings;
   const canBatchCook = planOccurrences >= 2 && planTotalServings > baseServings;
-  const displayServings = canBatchCook && usePlanTotal ? planTotalServings : baseServings;
+  const usePlanTotal = Math.abs(displayServings - planTotalServings) < 0.01;
+
+  const applyScale = (newScale: number) => {
+    if (!isFinite(newScale) || newScale <= 0) return;
+    setScale(newScale);
+    setDirty(true);
+  };
+
+  const handleClose = () => {
+    if (dirty && entryId != null) setShowSavePrompt(true);
+    else onClose();
+  };
 
   const handleSaveComment = () => {
     const newComment = commentText.trim() || undefined;
@@ -246,8 +320,38 @@ export function RecipeDetailModal({
   };
   return (
     <ModalPortal>
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={handleClose}>
       <div className="modal-content" style={{ maxWidth: '700px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
+        {showSavePrompt && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          >
+            <div className="modal-content" style={{ maxWidth: '380px', width: '90%', textAlign: 'center' }}>
+              <p style={{ fontSize: '15px', color: 'var(--text-h)', marginTop: 0 }}>
+                Geänderte Menge in den Plan übernehmen?
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                {formatServings(displayServings)} statt {formatServings(baseServings)} Portionen
+              </p>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '16px' }}>
+                <button className="btn btn-muted" onClick={() => { setShowSavePrompt(false); onClose(); }}>
+                  Verwerfen
+                </button>
+                <button
+                  className="btn btn-accent"
+                  onClick={() => {
+                    if (entryId != null) updateEntryServings(entryId, Number(displayServings.toFixed(2)));
+                    setShowSavePrompt(false);
+                    onClose();
+                  }}
+                >
+                  Übernehmen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
           {meal.recipeUrl && (
             <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer" className="btn btn-muted" style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>
@@ -270,7 +374,7 @@ export function RecipeDetailModal({
             </button>
           )}
           {onEdit && <button className="btn btn-accent" onClick={onEdit} style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>Bearbeiten</button>}
-          <button className="btn-ghost" onClick={onClose} style={{ fontSize: '24px' }}>×</button>
+          <button className="btn-ghost" onClick={handleClose} style={{ fontSize: '24px' }}>×</button>
         </div>
         <h2 style={{ margin: '0 0 16px 0', color: 'var(--text-h)', textAlign: 'center' }}>{meal.name}</h2>
 
@@ -311,10 +415,47 @@ export function RecipeDetailModal({
         ) : null}
 
         <div style={{ fontSize: '14px', color: 'var(--text)', marginBottom: '12px' }}>
-          {displayServings} Person{displayServings !== 1 ? 'en' : ''}
-          {displayServings !== meal.defaultServings && (
+          {editingServings ? (
+            <input
+              type="number"
+              min="0.1"
+              step="0.5"
+              value={servingsDraft}
+              autoFocus
+              onChange={(e) => setServingsDraft(e.target.value)}
+              onBlur={() => {
+                const n = parseFloat(servingsDraft.replace(',', '.'));
+                if (isFinite(n) && n > 0) applyScale(n / meal.defaultServings);
+                setEditingServings(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                if (e.key === 'Escape') setEditingServings(false);
+              }}
+              style={{ width: '70px', fontSize: '14px', padding: '2px 6px' }}
+            />
+          ) : (
+            <span
+              onClick={() => { setServingsDraft(String(Number(displayServings.toFixed(1)))); setEditingServings(true); }}
+              style={{ cursor: 'pointer', borderBottom: '1px dashed var(--text-muted)' }}
+              title="Personenzahl bearbeiten"
+            >
+              {formatServings(displayServings)}
+            </span>
+          )}
+          {' '}Person{displayServings !== 1 ? 'en' : ''}
+          {Math.abs(displayServings - meal.defaultServings) > 0.01 && (
             <span style={{ fontSize: '12px', color: 'var(--text)', marginLeft: '5px' }}>
               (skaliert von {meal.defaultServings})
+            </span>
+          )}
+          {(meal.prepTime || meal.totalTime) && (
+            <span style={{ marginLeft: '8px' }}>
+              {' • '}⏱ {meal.prepTime && meal.totalTime
+                ? `Vorbereitung ${meal.prepTime} Min · Gesamt ${meal.totalTime} Min`
+                : meal.prepTime
+                  ? `Vorbereitung ${meal.prepTime} Min`
+                  : `${meal.totalTime} Min`}
             </span>
           )}
         </div>
@@ -323,7 +464,7 @@ export function RecipeDetailModal({
           <div style={{ marginBottom: '12px' }}>
             <button
               className="btn btn-muted"
-              onClick={() => setUsePlanTotal(v => !v)}
+              onClick={() => setScale((usePlanTotal ? baseServings : planTotalServings) / meal.defaultServings)}
               style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
             >
               {usePlanTotal
@@ -371,12 +512,45 @@ export function RecipeDetailModal({
             <strong style={{ fontSize: '14px', color: 'var(--text-h)' }}>Zutaten</strong>
             <ul style={{ margin: '8px 0', paddingLeft: '18px', fontSize: '14px', color: 'var(--text)', textAlign: 'left' }}>
               {meal.ingredients.map((ing, i) => {
-                const scaled = ing.amount * (displayServings / meal.defaultServings);
+                const scaled = ing.amount * scale;
+                const scaledMax = ing.amountMax != null ? ing.amountMax * scale : null;
+                const isTaste = ing.unit === 'NB' || ing.unit === 'Nach Belieben';
+                const editable = !isTaste && ing.amount > 0;
                 return (
                   <li key={i}>
-                    {ing.unit === 'NB' || ing.unit === 'Nach Belieben'
+                    {isTaste
                       ? <>{ing.name} <span style={{ color: 'var(--text-muted)' }}>(nach Belieben)</span></>
-                      : <><strong>{Number(scaled.toFixed(1))} {ing.unit}</strong> {ing.name}</>}
+                      : editingIngredientIndex === i
+                        ? <>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={ingredientDraft}
+                              autoFocus
+                              onChange={(e) => setIngredientDraft(e.target.value)}
+                              onBlur={() => {
+                                const n = parseFloat(ingredientDraft.replace(',', '.'));
+                                if (isFinite(n) && n > 0) applyScale(n / ing.amount);
+                                setEditingIngredientIndex(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                if (e.key === 'Escape') setEditingIngredientIndex(null);
+                              }}
+                              style={{ width: '80px', fontSize: '14px', padding: '2px 6px' }}
+                            />
+                            {' '}{ing.unit} {ing.name}
+                          </>
+                        : <>
+                            <strong
+                              onClick={editable ? () => { setIngredientDraft(String(Number(scaled.toFixed(1)))); setEditingIngredientIndex(i); } : undefined}
+                              style={editable ? { cursor: 'pointer', borderBottom: '1px dashed var(--text-muted)' } : undefined}
+                              title={editable ? 'Menge bearbeiten — passt alle anderen Zutaten an' : undefined}
+                            >
+                              {Number(scaled.toFixed(1))}{scaledMax != null ? `-${Number(scaledMax.toFixed(1))}` : ''} {ing.unit}
+                            </strong> {ing.name}
+                          </>}
                   </li>
                 );
               })}
@@ -395,6 +569,10 @@ export function RecipeDetailModal({
           onTagsUpdated={(tags) => {
             const { id: _, ...rest } = meal;
             updateMeal(meal.id, { ...rest, tags });
+          }}
+          onApplyRecommendation={(M) => {
+            const planPersons = activePlan?.defaultServings ?? defaultServings ?? baseServings;
+            applyScale((M * planPersons) / meal.defaultServings);
           }}
         />
 
@@ -520,7 +698,7 @@ function downloadFile(content: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
+export function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
   const { activePlan, allMealsForActivePlan, addMealToSlot, state, selectPlan } = useMealPlan();
   const activePlans = state.plans.filter(p => !p.archived);
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(
@@ -855,6 +1033,7 @@ export const RecipeManagement: React.FC = () => {
             <option value="name">Name A-Z</option>
             <option value="rating">Bewertung</option>
             <option value="newest">Neueste</option>
+            <option value="score">Nährwert-Score ↓</option>
             <option value="kcal">Kalorien ↑</option>
             <option value="protein">Protein ↓</option>
             <option value="fiber">Ballaststoffe ↓</option>

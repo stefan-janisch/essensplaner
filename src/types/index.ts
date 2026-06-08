@@ -7,6 +7,28 @@ export type NutritionInfo = {
   sugar: number;
 }
 
+// Background-only micronutrients (vitamins + trace elements). Kept SEPARATE from
+// NutritionInfo on purpose: the UI iterates over `keyof NutritionInfo` (DISPLAY_KEYS,
+// NUTRITION_KEYS, NUTRITION_LABELS), so keeping these out of that type ensures they
+// are logged but never rendered. All optional — meals estimated before this feature,
+// or fields the AI couldn't estimate, simply lack them. Units encoded in the key
+// suffix (_ug = µg, _mg = mg, _g = g); vitaminD_ug is µg (not IU).
+export type MicroNutrients = {
+  vitaminA_ug: number;
+  vitaminC_mg: number;
+  vitaminD_ug: number;
+  vitaminE_mg: number;
+  vitaminB12_ug: number;
+  folate_ug: number;
+  calcium_mg: number;
+  magnesium_mg: number;
+  iron_mg: number;
+  zinc_mg: number;
+  selenium_ug: number;
+  potassium_mg: number;
+  omega3_g: number;
+}
+
 export type NutritionTargets = {
   kcal: number;
   protein: number;
@@ -99,6 +121,7 @@ export type CalculatedNutrition = {
 export type Ingredient = {
   name: string;
   amount: number;
+  amountMax?: number;
   unit: string;
 }
 
@@ -118,7 +141,7 @@ export type Meal = {
   recipeText?: string;
   prepTime?: number;
   totalTime?: number;
-  nutritionPerServing?: NutritionInfo;
+  nutritionPerServing?: NutritionInfo & Partial<MicroNutrients>;
 }
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks' | 'drinks' | 'misc' | 'food';

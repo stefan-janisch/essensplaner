@@ -1,6 +1,7 @@
 import type { Meal } from '../types/index.js';
 import { parseTag } from '../constants/tags';
 import { getCategoryLabel } from '../constants/categories';
+import { computeNutritionScore } from './nutritionScore';
 
 export type RatingComparator = 'gte' | 'eq' | 'lte';
 
@@ -16,7 +17,7 @@ export interface MealFilterOptions {
   minProtein?: number | '';
 }
 
-export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'fiber' | 'sugar';
+export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'fiber' | 'sugar' | 'score';
 
 export function filterMeals(meals: Meal[], options: MealFilterOptions): Meal[] {
   const { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery } = options;
@@ -77,6 +78,7 @@ export function sortMeals(meals: Meal[], sortBy: SortBy, options?: { pinStarred?
       case 'protein': return (b.nutritionPerServing?.protein ?? 0) - (a.nutritionPerServing?.protein ?? 0);
       case 'fiber': return (b.nutritionPerServing?.fiber ?? 0) - (a.nutritionPerServing?.fiber ?? 0);
       case 'sugar': return (a.nutritionPerServing?.sugar ?? Infinity) - (b.nutritionPerServing?.sugar ?? Infinity);
+      case 'score': return (computeNutritionScore(b.nutritionPerServing) ?? -1) - (computeNutritionScore(a.nutritionPerServing) ?? -1);
       case 'name':
       default: return a.name.localeCompare(b.name);
     }

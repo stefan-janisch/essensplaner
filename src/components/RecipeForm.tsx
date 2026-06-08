@@ -5,6 +5,28 @@ import type { Meal, Ingredient } from '../types/index.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// Recipe-ingredient amounts may be ranges ("150-200"); we keep the raw text while editing
+// and split it into amount/amountMax on submit.
+type FormIngredient = Ingredient & { amountText?: string };
+
+// "150-200" -> { amount: 150, amountMax: 200 }; "150" -> { amount: 150 }. Tolerates commas.
+function parseAmountRange(text: string): { amount: number; amountMax?: number } {
+  const parts = String(text ?? '')
+    .replace(/,/g, '.')
+    .split('-')
+    .map(p => parseFloat(p.trim()))
+    .filter(n => !isNaN(n));
+  const amount = parts[0] || 0;
+  const max = parts[1];
+  if (max != null && max > amount) return { amount, amountMax: max };
+  return { amount };
+}
+
+function formatAmountRange(amount: number, amountMax?: number): string {
+  if (amountMax != null) return `${amount}-${amountMax}`;
+  return amount ? String(amount) : '';
+}
+
 type ParsedRecipe = {
   name: string; ingredientText: string; recipeText: string; servings: number;
   photoUrl?: string | null; category?: string | null; tags?: string[]; prepTime?: number | null; totalTime?: number | null;
@@ -277,8 +299,10 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   const [servings, setServings] = useState(initialData?.defaultServings || 2);
   const [comment, setComment] = useState(initialData?.comment || '');
   const [recipeText, setRecipeText] = useState(initialData?.recipeText || '');
-  const [ingredients, setIngredients] = useState<Ingredient[]>(
-    initialData?.ingredients?.length ? initialData.ingredients : [{ name: '', amount: 0, unit: '' }]
+  const [ingredients, setIngredients] = useState<FormIngredient[]>(
+    initialData?.ingredients?.length
+      ? initialData.ingredients.map(ing => ({ ...ing, amountText: formatAmountRange(ing.amount, ing.amountMax) }))
+      : [{ name: '', amount: 0, unit: '', amountText: '' }]
   );
   const [shoppingIngredients, setShoppingIngredients] = useState<Ingredient[]>(
     initialData?.shoppingIngredients?.length ? initialData.shoppingIngredients : []
@@ -338,7 +362,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
     try {
       const parsedIngs = await parseIngredientsWithAI(parsed.ingredientText);
       if (parsedIngs.ingredients.length > 0) {
-        setIngredients(parsedIngs.ingredients);
+        setIngredients(parsedIngs.ingredients.map(ing => ({ ...ing, amountText: formatAmountRange(ing.amount, ing.amountMax) })));
         setShoppingIngredients(parsedIngs.shoppingIngredients || []);
         if (parsedIngs.servings && (servings === 2 || !servings)) setServings(parsedIngs.servings);
       }
@@ -435,7 +459,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       setIsParsing(true);
       const parsed = await parseIngredientsWithAI(ingredientText);
       if (parsed.ingredients.length > 0) {
-        setIngredients(parsed.ingredients);
+        setIngredients(parsed.ingredients.map(ing => ({ ...ing, amountText: formatAmountRange(ing.amount, ing.amountMax) })));
         setShoppingIngredients(parsed.shoppingIngredients || []);
         if (parsed.servings) setServings(parsed.servings);
       } else {
@@ -461,9 +485,9 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
     }
   };
 
-  const handleAddIngredient = () => setIngredients([...ingredients, { name: '', amount: 0, unit: '' }]);
+  const handleAddIngredient = () => setIngredients([...ingredients, { name: '', amount: 0, unit: '', amountText: '' }]);
   const handleRemoveIngredient = (index: number) => setIngredients(ingredients.filter((_, i) => i !== index));
-  const handleIngredientChange = (index: number, field: keyof Ingredient, value: string | number) => {
+  const handleIngredientChange = (index: number, field: keyof FormIngredient, value: string | number) => {
     const updated = [...ingredients];
     updated[index] = { ...updated[index], [field]: value };
     setIngredients(updated);
@@ -497,7 +521,15 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { alert('Bitte geben Sie einen Namen ein'); return; }
-    const validIngredients = ingredients.filter(ing => ing.name.trim() && ing.amount >= 0);
+    const validIngredients: Ingredient[] = ingredients
+      .filter(ing => ing.name.trim())
+      .map(ing => {
+        const { amount, amountMax } = parseAmountRange(ing.amountText ?? String(ing.amount || ''));
+        const out: Ingredient = { name: ing.name, amount, unit: ing.unit };
+        if (amountMax != null) out.amountMax = amountMax;
+        return out;
+      })
+      .filter(ing => ing.amount >= 0);
     if (validIngredients.length === 0) { alert('Bitte fügen Sie mindestens eine Zutat hinzu'); return; }
     const validShoppingIngredients = shoppingIngredients.filter(ing => ing.name.trim() && ing.amount >= 0);
 
@@ -758,7 +790,7 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
             <div key={index} style={{ display: 'flex', gap: '3px', marginBottom: '4px' }}>
               <input className="input" type="text" placeholder="Zutat" value={ing.name} onChange={(e) => handleIngredientChange(index, 'name', e.target.value)}
                 style={{ flex: 2, ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
-              <input className="input ing-amount" type="number" placeholder="Menge" value={ing.amount || ''} onChange={(e) => handleIngredientChange(index, 'amount', parseFloat(e.target.value) || 0)}
+              <input className="input ing-amount" type="text" inputMode="decimal" placeholder="Menge / 150-200" value={ing.amountText ?? ''} onChange={(e) => handleIngredientChange(index, 'amountText', e.target.value)}
                 style={{ flex: 0, width: '65px', minWidth: '65px', ...(ing.unit === 'NB' || ing.unit === 'Nach Belieben' ? { backgroundColor: 'var(--color-danger-light)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}) }} />
               <input className="input ing-unit" type="text" placeholder="Einh." value={ing.unit} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)}
                 onFocus={(e) => { const el = e.target; setTimeout(() => el.select()); }}

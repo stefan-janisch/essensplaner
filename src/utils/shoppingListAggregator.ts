@@ -43,7 +43,9 @@ export const generateShoppingList = (
 
     ingredientsForShopping.forEach(ingredient => {
       const normalizedName = normalizeIngredientName(ingredient.name);
-      const scaledAmount = ingredient.amount * scaleFactor;
+      // For ranged amounts (recipe ingredients used as shopping fallback), buy the maximum.
+      const baseAmount = ingredient.amountMax ?? ingredient.amount;
+      const scaledAmount = baseAmount * scaleFactor;
 
       if (!ingredientMap.has(normalizedName)) {
         ingredientMap.set(normalizedName, new Map());

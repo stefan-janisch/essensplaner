@@ -1,13 +1,24 @@
 import { useState, useMemo } from 'react';
 import { api } from '../api/client.js';
 import { useMealPlan } from '../context/MealPlanContext';
-import type { Meal, NutritionInfo } from '../types/index.js';
+import type { Meal, NutritionInfo, MicroNutrients } from '../types/index.js';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import { getNutrientColor, COLOR_HEX, NUTRITION_LABELS, calculateOptimalMultiplier, getPerMealTargets } from '../utils/nutritionColors';
+import { MICRO_REFERENCES, getMicroReference } from '../utils/microReference';
+import { computeNutritionScore, getScoreColor } from '../utils/nutritionScore';
+
+type FullNutrition = NutritionInfo & Partial<MicroNutrients>;
+
+// Round a (scaled) micronutrient value to at most one decimal for display.
+function fmtMicro(value: number): string {
+  const r = Math.round(value * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
 
 interface NutritionTableProps {
   meal: Meal;
   onTagsUpdated?: (tags: string[]) => void;
+  onApplyRecommendation?: (multiplier: number) => void;
 }
 
 const DISPLAY_KEYS: { key: keyof NutritionInfo; unit: string }[] = [
@@ -19,21 +30,33 @@ const DISPLAY_KEYS: { key: keyof NutritionInfo; unit: string }[] = [
   { key: 'sugar', unit: 'g' },
 ];
 
-export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
-  const { nutritionTargets, mealsPerDay } = useMealPlan();
-  const [nutrition, setNutrition] = useState<NutritionInfo | null>(meal.nutritionPerServing ?? null);
+export function NutritionTable({ meal, onTagsUpdated, onApplyRecommendation }: NutritionTableProps) {
+  const { nutritionTargets, mealsPerDay, nutritionProfile } = useMealPlan();
+  const [nutrition, setNutrition] = useState<FullNutrition | null>(meal.nutritionPerServing ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [portionScale, setPortionScale] = useState(100); // percentage: 50-200
+  const [showMicros, setShowMicros] = useState(false);
 
   const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
   const mpd = mealsPerDay || 3;
   const perMealTargets = getPerMealTargets(targets, mpd);
+  // Daily DGE reference per micronutrient (gender-aware) → divided by meals/day for a per-meal target.
+  const microRefs = useMemo(() => getMicroReference(nutritionProfile), [nutritionProfile]);
+
+  const scaled = useMemo(() => {
+    if (!nutrition) return null;
+    const s = portionScale / 100;
+    return Object.fromEntries(
+      DISPLAY_KEYS.map(({ key }) => [key, Math.round(nutrition[key] * s)])
+    ) as Record<keyof NutritionInfo, number>;
+  }, [nutrition, portionScale]);
 
   const handleEstimate = async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.post<{ nutritionPerServing: NutritionInfo; tagsUpdated: string[] | null }>(
+      const result = await api.post<{ nutritionPerServing: FullNutrition; tagsUpdated: string[] | null }>(
         '/api/estimate-nutrition',
         { mealId: meal.id }
       );
@@ -75,21 +98,23 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
     );
   }
 
-  const [portionScale, setPortionScale] = useState(100); // percentage: 50-200
-
-  const scaled = useMemo(() => {
-    if (!nutrition) return null;
-    const s = portionScale / 100;
-    return Object.fromEntries(
-      DISPLAY_KEYS.map(({ key }) => [key, Math.round(nutrition[key] * s)])
-    ) as Record<keyof NutritionInfo, number>;
-  }, [nutrition, portionScale]);
-
   if (!nutrition || !scaled) return null;
 
   return (
     <div className="nutrition-section">
-      <div className="nutrition-header">Geschätzte Nährwerte pro Portion</div>
+      <div className="nutrition-header">
+        Geschätzte Nährwerte pro Portion
+        {(() => {
+          const score = computeNutritionScore(nutrition);
+          if (score === null) return null;
+          return (
+            <span className="nutrition-score-badge" style={{ backgroundColor: COLOR_HEX[getScoreColor(score)] }}
+              title="Nährwert-Score 0–100: Mikronährstoffdichte, Protein, Ballaststoffe, wenig Zucker, moderate Energie">
+              Score {score}
+            </span>
+          );
+        })()}
+      </div>
 
       {/* Portion size slider */}
       <div className="nutrition-portion-slider">
@@ -137,6 +162,44 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
         })}
       </div>
 
+      {/* Expandable micronutrient detail (vitamins + trace elements) */}
+      <div className="nutrition-micros">
+        <button className="nutrition-micros-toggle" onClick={() => setShowMicros(v => !v)}>
+          <span className="nutrition-micros-chevron">{showMicros ? '▾' : '▸'}</span>
+          Vitamine &amp; Spurenelemente
+        </button>
+        {showMicros && (() => {
+          const s = portionScale / 100;
+          const present = MICRO_REFERENCES.filter(m => nutrition[m.key] != null);
+          if (present.length === 0) {
+            return (
+              <div className="nutrition-micro-empty">
+                Für dieses Rezept liegen noch keine Mikronährstoff-Daten vor. Sie werden bei der nächsten Nährwert-Schätzung ergänzt.
+              </div>
+            );
+          }
+          return (
+            <div className="nutrition-micro-grid">
+              {present.map(m => {
+                const val = nutrition[m.key]! * s;
+                const perMealRef = microRefs[m.key] / mpd;
+                const percent = perMealRef > 0 ? Math.round((val / perMealRef) * 100) : 0;
+                const color = getNutrientColor(percent, 'protein'); // all micros: "more is better"
+                return (
+                  <div key={m.key} className="nutrition-micro-row"
+                    title={`${percent}% der empfohlenen Menge pro Mahlzeit (Tagesbedarf ~${microRefs[m.key]} ${m.unit})`}>
+                    <span className="nutrition-micro-label">{m.label}</span>
+                    <span className="nutrition-micro-value" style={{ color: COLOR_HEX[color] }}>
+                      {fmtMicro(val)}<span className="nutrition-micro-unit">{m.unit}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* Optimal serving recommendation */}
       {(() => {
         const M = calculateOptimalMultiplier(nutrition, perMealTargets);
@@ -144,7 +207,7 @@ export function NutritionTable({ meal, onTagsUpdated }: NutritionTableProps) {
         const scaledKcal = Math.round(nutrition.kcal * M);
         const mPct = Math.round(M * 100 / 5) * 5;
         return (
-          <div className="nutrition-recommendation" onClick={() => setPortionScale(Math.max(50, Math.min(200, mPct)))} style={{ cursor: 'pointer' }}>
+          <div className="nutrition-recommendation" onClick={() => { setPortionScale(Math.max(50, Math.min(200, mPct))); onApplyRecommendation?.(M); }} style={{ cursor: 'pointer' }}>
             Empfohlene Portionsgröße: <strong>{M.toFixed(1)}×</strong> ({scaledKcal} kcal) <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>— klicken zum Anwenden</span>
           </div>
         );
