@@ -1,10 +1,9 @@
 /**
  * Shared micronutrient logic for the nutrition estimation routine.
  *
- * Both the live endpoint (server/index.js → POST /api/estimate-nutrition) and the
- * offline backfill script (scripts/backfill-nutrition.js) import from here so the
- * micro fields and their parsing stay in sync. Macro/tag logic in each caller is
- * intentionally left untouched — this module only owns the 13 background micros.
+ * The recipe nutrition prompt (server/nutritionEstimate.js) and the quick meal estimate
+ * (server/index.js → POST /api/estimate-quick-meal) import from here so the micro fields
+ * and their parsing stay in sync everywhere.
  *
  * Micros are estimated per ONE serving (same normalization as the macros) and stored
  * inside the existing meals.nutrition_per_serving JSON. They are background-only and
@@ -65,4 +64,23 @@ export function parseMicros(parsed) {
     micros[key] = Math.round(clamped * factor) / factor;
   }
   return micros;
+}
+
+/**
+ * Full per-serving nutrition object (6 macros rounded to integers + the 13 micros) from an
+ * AI response or client payload. Used by quick meals (estimate + save), where the whole
+ * object comes from outside and must be validated in one place.
+ */
+export function parseNutrition(parsed) {
+  const macro = (v, cap) => Math.round(Math.min(cap, Math.max(0, Number(v) || 0)));
+  const p = parsed && typeof parsed === 'object' ? parsed : {};
+  return {
+    kcal: macro(p.kcal, 5000),
+    protein: macro(p.protein, 400),
+    carbs: macro(p.carbs, 800),
+    fat: macro(p.fat, 400),
+    fiber: macro(p.fiber, 200),
+    sugar: macro(p.sugar, 400),
+    ...parseMicros(p),
+  };
 }

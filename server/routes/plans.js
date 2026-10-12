@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { rowToMeal } from '../utils/transformers.js';
+import { fillCoffeeHabit, resolveToday, setCoffeeCount, isDate, ownDrinkStmt } from '../coffee.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -15,6 +16,7 @@ function rowToEntry(row) {
     mealId: row.meal_id,
     servings: row.servings,
     enabled: row.enabled === 1,
+    personal: row.personal_user_id != null || undefined,
   };
 }
 
@@ -85,7 +87,7 @@ router.get('/', (req, res) => {
     ORDER BY created_at DESC
   `).all(req.userId, req.userId);
 
-  const entryCountStmt = db.prepare('SELECT COUNT(*) as cnt FROM meal_plan_entries WHERE plan_id = ?');
+  const entryCountStmt = db.prepare('SELECT COUNT(*) as cnt FROM meal_plan_entries WHERE plan_id = ? AND personal_user_id IS NULL');
   const collabStmt = db.prepare(`
     SELECT u.id, u.email FROM plan_collaborators pc
     JOIN users u ON u.id = pc.user_id
@@ -144,9 +146,12 @@ router.get('/:planId', (req, res) => {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
+  fillCoffeeHabit(plan, req.userId, resolveToday(req.query.today));
+
+  // Personal entries (coffee) of other members of a shared plan stay private.
   const entries = db.prepare(
-    'SELECT * FROM meal_plan_entries WHERE plan_id = ? ORDER BY date, meal_type'
-  ).all(plan.id);
+    'SELECT * FROM meal_plan_entries WHERE plan_id = ? AND (personal_user_id IS NULL OR personal_user_id = ?) ORDER BY date, meal_type'
+  ).all(plan.id, req.userId);
 
   // Get user's own meal IDs
   const userMealIds = new Set(
@@ -186,6 +191,10 @@ router.get('/:planId', (req, res) => {
     'SELECT date, meal_type, note FROM plan_slot_notes WHERE plan_id = ?'
   ).all(plan.id).map(r => ({ date: r.date, mealType: r.meal_type, note: r.note }));
 
+  const dayPersons = db.prepare(
+    'SELECT date, persons FROM plan_day_persons WHERE plan_id = ?'
+  ).all(plan.id);
+
   const excludedIngredients = db.prepare(
     'SELECT ingredient_name FROM excluded_shopping_ingredients WHERE plan_id = ?'
   ).all(plan.id).map(r => r.ingredient_name);
@@ -200,6 +209,7 @@ router.get('/:planId', (req, res) => {
     courses: courses.map(rowToCourse),
     disabledSlots,
     slotNotes,
+    dayPersons,
     excludedIngredients,
     sharedMeals,
     collaborators,
@@ -273,6 +283,28 @@ router.post('/:planId/entries', (req, res) => {
   }
 });
 
+// ☕ Set how many cups of one drink the current user has on a day (0 removes it).
+router.put('/:planId/coffee', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) {
+    return res.status(404).json({ error: 'Plan nicht gefunden' });
+  }
+  const { date, mealId, count } = req.body || {};
+  if (!isDate(date) || typeof mealId !== 'string') {
+    return res.status(400).json({ error: 'date und mealId sind erforderlich' });
+  }
+  if (!ownDrinkStmt.get(mealId, req.userId)) {
+    return res.status(404).json({ error: 'Getränk nicht gefunden' });
+  }
+  try {
+    const row = setCoffeeCount(plan.id, req.userId, date, mealId, count);
+    res.json({ entry: row ? rowToEntry(row) : null });
+  } catch (err) {
+    console.error('Set coffee error:', err);
+    res.status(500).json({ error: 'Kaffee konnte nicht gespeichert werden' });
+  }
+});
+
 // Update entry
 router.put('/:planId/entries/:entryId', (req, res) => {
   const plan = getPlanForUser(req.params.planId, req.userId);
@@ -281,8 +313,8 @@ router.put('/:planId/entries/:entryId', (req, res) => {
   }
 
   try {
-    const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ?')
-      .get(req.params.entryId, plan.id);
+    const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ? AND (personal_user_id IS NULL OR personal_user_id = ?)')
+      .get(req.params.entryId, plan.id, req.userId);
     if (!entry) {
       return res.status(404).json({ error: 'Eintrag nicht gefunden' });
     }
@@ -296,12 +328,6 @@ router.put('/:planId/entries/:entryId', (req, res) => {
       newEnabled,
       entry.id
     );
-
-    // Keep the nutrition report in sync: ✗ (enabled 0) means "cooked". Un-marking it (✗ -> ✓)
-    // removes the entry from the log; re-marking re-adds it on the next reconcile.
-    if (newEnabled === 1) {
-      db.prepare('DELETE FROM nutrition_logs WHERE entry_id = ? AND user_id = ?').run(entry.id, req.userId);
-    }
 
     const row = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ?').get(entry.id);
     res.json(rowToEntry(row));
@@ -318,8 +344,8 @@ router.delete('/:planId/entries/:entryId', (req, res) => {
     return res.status(404).json({ error: 'Plan nicht gefunden' });
   }
 
-  const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ?')
-    .get(req.params.entryId, plan.id);
+  const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ? AND (personal_user_id IS NULL OR personal_user_id = ?)')
+    .get(req.params.entryId, plan.id, req.userId);
   if (!entry) {
     return res.status(404).json({ error: 'Eintrag nicht gefunden' });
   }
@@ -340,8 +366,8 @@ router.put('/:planId/entries/:entryId/move', (req, res) => {
   }
 
   try {
-    const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ?')
-      .get(req.params.entryId, plan.id);
+    const entry = db.prepare('SELECT * FROM meal_plan_entries WHERE id = ? AND plan_id = ? AND (personal_user_id IS NULL OR personal_user_id = ?)')
+      .get(req.params.entryId, plan.id, req.userId);
     if (!entry) {
       return res.status(404).json({ error: 'Eintrag nicht gefunden' });
     }
@@ -423,6 +449,34 @@ router.post('/:planId/slot-notes', (req, res) => {
   } catch (err) {
     console.error('Set slot note error:', err);
     res.status(500).json({ error: 'Notiz konnte nicht gespeichert werden' });
+  }
+});
+
+// --- Per-day person count ---
+
+/** Set the person count for one day, or clear it (persons null/0) to fall back to the plan's. */
+router.post('/:planId/day-persons', (req, res) => {
+  const plan = getPlanForUser(req.params.planId, req.userId);
+  if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden' });
+
+  try {
+    const { date, persons } = req.body;
+    if (!date) return res.status(400).json({ error: 'date ist erforderlich' });
+
+    const n = Number(persons);
+    if (!persons || !Number.isFinite(n) || n < 1) {
+      db.prepare('DELETE FROM plan_day_persons WHERE plan_id = ? AND date = ?').run(plan.id, date);
+      return res.json({ date, persons: null });
+    }
+    const value = Math.min(50, Math.round(n));
+    db.prepare(`
+      INSERT INTO plan_day_persons (plan_id, date, persons) VALUES (?, ?, ?)
+      ON CONFLICT(plan_id, date) DO UPDATE SET persons = excluded.persons
+    `).run(plan.id, date, value);
+    res.json({ date, persons: value });
+  } catch (err) {
+    console.error('Set day persons error:', err);
+    res.status(500).json({ error: 'Personenzahl konnte nicht gespeichert werden' });
   }
 });
 

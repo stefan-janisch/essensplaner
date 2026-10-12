@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * Backfill nutrition estimates for all meals that have ingredients but no nutrition_per_serving.
+ * Backfill nutrition estimates for all meals that have ingredients but no nutrition_per_serving
+ * (or are missing micronutrients), plus the estimated portion weight for meals that lack it.
+ * Uses the same prompts/parsing/auto-tags as the live endpoint (server/nutritionEstimate.js,
+ * server/portionWeight.js).
  * Run with: node scripts/backfill-nutrition.js
  * Directly accesses DB and OpenAI — no running server needed.
  */
@@ -11,7 +14,14 @@ import { readFileSync } from 'fs';
 import toml from '@iarna/toml';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { MICRO_PROMPT_FRAGMENT, MICRO_KEYS, parseMicros } from '../server/nutritionMicros.js';
+import { MICRO_KEYS } from '../server/nutritionMicros.js';
+import {
+  NUTRITION_MODEL, NUTRITION_SYSTEM_PROMPT, buildNutritionUserMessage, cleanJsonResponse,
+  parseNutritionEstimate, mergeNutritionTags,
+} from '../server/nutritionEstimate.js';
+import {
+  PORTION_WEIGHT_SYSTEM_PROMPT, buildPortionWeightUserMessage, parsePortionWeight,
+} from '../server/portionWeight.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
@@ -27,7 +37,8 @@ const openai = new OpenAI({ apiKey: config.key });
 // Meals are candidates if they have no nutrition yet, OR have macros but are missing the
 // micronutrient fields (added later). The JSON-key check is done in JS below.
 const allMeals = db.prepare(`
-  SELECT id, name, ingredients, default_servings, user_id, nutrition_per_serving, tags
+  SELECT id, name, ingredients, default_servings, user_id, nutrition_per_serving, tags,
+         portion_weight_g, recipe_text, total_time
   FROM meals
   WHERE ingredients != '[]' AND ingredients IS NOT NULL
 `).all();
@@ -46,81 +57,66 @@ function needsEstimation(meal) {
 
 const meals = allMeals.filter(needsEstimation);
 
-console.log(`Found ${meals.length} meals needing (re-)estimation (incl. missing micronutrients).\n`);
+// The portion weight is a separate, cheaper call: meals that already have valid nutrition
+// only need the weight added, not a full re-estimate.
+const weightOnly = allMeals.filter(m => !needsEstimation(m) && m.portion_weight_g == null);
+
+console.log(`Found ${meals.length} meals needing (re-)estimation (incl. missing micronutrients).`);
+console.log(`Found ${weightOnly.length} meals needing only a portion weight.\n`);
 
 const updateStmt = db.prepare('UPDATE meals SET nutrition_per_serving = ? WHERE id = ?');
 const updateTagsStmt = db.prepare('UPDATE meals SET nutrition_per_serving = ?, tags = ? WHERE id = ?');
+const updateWeightStmt = db.prepare('UPDATE meals SET portion_weight_g = ? WHERE id = ?');
+
+/** Estimate + store the weight of one ready-to-eat serving. Returns the grams, or null. */
+async function backfillPortionWeight(meal) {
+  const ingredients = JSON.parse(meal.ingredients);
+  if (ingredients.length === 0) return null;
+
+  const completion = await openai.chat.completions.create({
+    model: NUTRITION_MODEL,
+    messages: [
+      { role: 'system', content: PORTION_WEIGHT_SYSTEM_PROMPT },
+      { role: 'user', content: buildPortionWeightUserMessage(meal.name, ingredients, meal.default_servings, meal.recipe_text, meal.total_time) },
+    ],
+  });
+
+  const weight = parsePortionWeight(JSON.parse(cleanJsonResponse(completion.choices[0]?.message?.content || '{}')));
+  if (weight !== null) updateWeightStmt.run(weight, meal.id);
+  return weight;
+}
 
 let success = 0, failed = 0;
+let weightSuccess = 0, weightFailed = 0;
 
 for (const meal of meals) {
   try {
     const ingredients = JSON.parse(meal.ingredients);
     if (ingredients.length === 0) continue;
 
-    const servings = meal.default_servings || 1;
-    const ingredientList = ingredients.map(ing => {
-      if (ing.unit === 'NB') return `${ing.name} (nach Belieben)`;
-      const normalized = Number((ing.amount / servings).toFixed(2));
-      return `${normalized} ${ing.unit} ${ing.name}`;
-    }).join('\n');
-
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5.2',
+      model: NUTRITION_MODEL,
       messages: [
-        {
-          role: 'system',
-          content: `Du bist ein Ernährungsexperte. Schätze die Nährwerte für die folgenden Zutaten. Die Mengen sind bereits für EINE Portion angegeben.
-
-Gib das Ergebnis als JSON zurück:
-{ "kcal": number, "protein": number, "carbs": number, "fat": number, "fiber": number, "sugar": number, "tags": string[] }
-
-- kcal: Kilokalorien
-- protein: Protein in Gramm
-- carbs: Kohlenhydrate in Gramm
-- fat: Fett in Gramm
-- fiber: Ballaststoffe in Gramm
-- sugar: ZUGESETZTER Zucker in Gramm (NUR Haushaltszucker, Honig, Sirup — NICHT natürlicher Zucker aus Obst, Milch etc.)
-- tags: Array mit 0-2 Einträgen aus ["gesund", "kalorienarm"]:
-  - "kalorienarm": wenn ≤ 500 kcal und fettarm
-  - "gesund": ausgewogenes Verhältnis, reich an Ballaststoffen/Gemüse
-
-Runde die Makro-Nährwerte (kcal, protein, carbs, fat, fiber, sugar) auf ganze Zahlen.
-Antworte NUR mit dem JSON-Objekt.
-${MICRO_PROMPT_FRAGMENT}`
-        },
-        { role: 'user', content: `Zutaten für 1 Portion "${meal.name}":\n${ingredientList}` }
+        { role: 'system', content: NUTRITION_SYSTEM_PROMPT },
+        { role: 'user', content: buildNutritionUserMessage(meal.name, ingredients, meal.default_servings) },
       ],
     });
 
     const text = completion.choices[0]?.message?.content || '{}';
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const { nutrition, aiTags } = parseNutritionEstimate(JSON.parse(cleanJsonResponse(text)));
 
-    const nutrition = {
-      kcal: Math.round(Math.max(0, Number(parsed.kcal) || 0)),
-      protein: Math.round(Math.max(0, Number(parsed.protein) || 0)),
-      carbs: Math.round(Math.max(0, Number(parsed.carbs) || 0)),
-      fat: Math.round(Math.max(0, Number(parsed.fat) || 0)),
-      fiber: Math.round(Math.max(0, Number(parsed.fiber) || 0)),
-      sugar: Math.round(Math.max(0, Number(parsed.sugar) || 0)),
-      // Background-only micronutrients (vitamins + trace elements).
-      ...parseMicros(parsed),
-    };
-
-    // Auto-tagging
-    const aiTags = Array.isArray(parsed.tags) ? parsed.tags.filter(t => ['gesund', 'kalorienarm'].includes(t)) : [];
-    if (aiTags.length > 0) {
-      const existingTags = meal.tags ? JSON.parse(meal.tags) : [];
-      const nutritionTagSet = new Set(['eigenschaft:gesund', 'eigenschaft:kalorienarm']);
-      const filteredTags = existingTags.filter(t => !nutritionTagSet.has(t));
-      const newTags = [...filteredTags, ...aiTags.map(t => `eigenschaft:${t}`)];
+    const existingTags = meal.tags ? JSON.parse(meal.tags) : [];
+    const newTags = mergeNutritionTags(existingTags, aiTags, nutrition);
+    if (JSON.stringify([...newTags].sort()) !== JSON.stringify([...existingTags].sort())) {
       updateTagsStmt.run(JSON.stringify(nutrition), JSON.stringify(newTags), meal.id);
     } else {
       updateStmt.run(JSON.stringify(nutrition), meal.id);
     }
 
-    console.log(`  ✓ ${meal.name}: ${nutrition.kcal} kcal [${aiTags.join(', ') || '-'}]`);
+    const weight = await backfillPortionWeight({ ...meal, portion_weight_g: null });
+    if (weight !== null) weightSuccess++; else weightFailed++;
+
+    console.log(`  ✓ ${meal.name}: ${nutrition.kcal} kcal [${aiTags.join(', ') || '-'}]${weight !== null ? ` · ${weight} g/Portion` : ''}`);
     success++;
 
     // Rate limit: small delay
@@ -131,5 +127,19 @@ ${MICRO_PROMPT_FRAGMENT}`
   }
 }
 
+for (const meal of weightOnly) {
+  try {
+    const weight = await backfillPortionWeight(meal);
+    if (weight === null) throw new Error('keine plausible Schätzung');
+    console.log(`  ✓ ${meal.name}: ${weight} g/Portion`);
+    weightSuccess++;
+    await new Promise(r => setTimeout(r, 300));
+  } catch (err) {
+    console.log(`  ✗ ${meal.name} (Portionsgewicht): ${err.message}`);
+    weightFailed++;
+  }
+}
+
 console.log(`\nDone: ${success} estimated, ${failed} failed.`);
+console.log(`Portion weights: ${weightSuccess} estimated, ${weightFailed} failed.`);
 db.close();

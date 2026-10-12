@@ -2,10 +2,10 @@ import { useState, useMemo } from 'react';
 import { api } from '../api/client.js';
 import { useMealPlan } from '../context/MealPlanContext';
 import type { Meal, NutritionInfo, MicroNutrients } from '../types/index.js';
-import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import { getNutrientColor, COLOR_HEX, NUTRITION_LABELS, calculateOptimalMultiplier, getPerMealTargets } from '../utils/nutritionColors';
 import { MICRO_REFERENCES, getMicroReference } from '../utils/microReference';
 import { computeNutritionScore, getScoreColor } from '../utils/nutritionScore';
+import { formatPortionWeight, PORTION_WEIGHT_TITLE } from '../utils/portionWeight';
 
 type FullNutrition = NutritionInfo & Partial<MicroNutrients>;
 
@@ -17,6 +17,8 @@ function fmtMicro(value: number): string {
 
 interface NutritionTableProps {
   meal: Meal;
+  /** Plan day the recipe is viewed for — its targets set the per-meal reference; else today's. */
+  date?: string;
   onTagsUpdated?: (tags: string[]) => void;
   onApplyRecommendation?: (multiplier: number) => void;
 }
@@ -30,15 +32,16 @@ const DISPLAY_KEYS: { key: keyof NutritionInfo; unit: string }[] = [
   { key: 'sugar', unit: 'g' },
 ];
 
-export function NutritionTable({ meal, onTagsUpdated, onApplyRecommendation }: NutritionTableProps) {
-  const { nutritionTargets, mealsPerDay, nutritionProfile } = useMealPlan();
+export function NutritionTable({ meal, date, onTagsUpdated, onApplyRecommendation }: NutritionTableProps) {
+  const { targetsForDate, todayTargets, mealsPerDay, nutritionProfile } = useMealPlan();
   const [nutrition, setNutrition] = useState<FullNutrition | null>(meal.nutritionPerServing ?? null);
+  const [portionWeight, setPortionWeight] = useState<number | undefined>(meal.portionWeight);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [portionScale, setPortionScale] = useState(100); // percentage: 50-200
   const [showMicros, setShowMicros] = useState(false);
 
-  const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
+  const targets = date ? targetsForDate(date) : todayTargets;
   const mpd = mealsPerDay || 3;
   const perMealTargets = getPerMealTargets(targets, mpd);
   // Daily DGE reference per micronutrient (gender-aware) → divided by meals/day for a per-meal target.
@@ -56,11 +59,12 @@ export function NutritionTable({ meal, onTagsUpdated, onApplyRecommendation }: N
     setLoading(true);
     setError(null);
     try {
-      const result = await api.post<{ nutritionPerServing: FullNutrition; tagsUpdated: string[] | null }>(
+      const result = await api.post<{ nutritionPerServing: FullNutrition; portionWeight?: number; tagsUpdated: string[] | null }>(
         '/api/estimate-nutrition',
         { mealId: meal.id }
       );
       setNutrition(result.nutritionPerServing);
+      setPortionWeight(result.portionWeight);
       if (result.tagsUpdated && onTagsUpdated) {
         onTagsUpdated(result.tagsUpdated);
       }
@@ -100,16 +104,23 @@ export function NutritionTable({ meal, onTagsUpdated, onApplyRecommendation }: N
 
   if (!nutrition || !scaled) return null;
 
+  // Weight of one serving as shown in the header, and of the slider's scaled serving.
+  const portionWeightLabel = formatPortionWeight({ portionWeight });
+  const scaledWeightLabel = formatPortionWeight({ portionWeight }, portionScale / 100);
+
   return (
     <div className="nutrition-section">
       <div className="nutrition-header">
         Geschätzte Nährwerte pro Portion
+        {portionWeightLabel && (
+          <span className="portion-weight" title={PORTION_WEIGHT_TITLE}>&nbsp;({portionWeightLabel})</span>
+        )}
         {(() => {
           const score = computeNutritionScore(nutrition);
           if (score === null) return null;
           return (
             <span className="nutrition-score-badge" style={{ backgroundColor: COLOR_HEX[getScoreColor(score)] }}
-              title="Nährwert-Score 0–100: Mikronährstoffdichte, Protein, Ballaststoffe, wenig Zucker, moderate Energie">
+              title="Nährwert-Score 0–100 (Dichte pro kcal): Mikronährstoffe, Protein, Ballaststoffe, wenig Zucker, moderate Portionsgröße">
               Score {score}
             </span>
           );
@@ -123,7 +134,10 @@ export function NutritionTable({ meal, onTagsUpdated, onApplyRecommendation }: N
           onChange={e => setPortionScale(parseInt(e.target.value))}
           style={{ flex: 1 }} />
         <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>2×</span>
-        <span className="nutrition-portion-badge">{(portionScale / 100).toFixed(portionScale % 100 === 0 ? 0 : 1)}× Portion</span>
+        <span className="nutrition-portion-badge">
+          {(portionScale / 100).toFixed(portionScale % 100 === 0 ? 0 : 1)}× Portion
+          {scaledWeightLabel && <span className="portion-weight" title={PORTION_WEIGHT_TITLE}>&nbsp;· {scaledWeightLabel}</span>}
+        </span>
       </div>
 
       {/* Number grid */}

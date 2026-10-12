@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { format, parseISO, eachDayOfInterval } from 'date-fns';
-import { de } from 'date-fns/locale';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import { ExtraItemRow } from './MealPlanTable';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
-import { DayNutritionDot } from './DayNutritionDot';
+import { DayLabel } from './DayLabel';
+import { DayPersonsBadge } from './DayPersonsBadge';
+import { CoffeeChip } from './CoffeeChip';
+import { TrainingChip } from './TrainingChip';
 import { useSlotNote } from '../hooks/useSlotNote';
+import { ServingsInput } from './ServingsInput';
 
 interface MobileDayViewProps {
   onAddRequest: (date: string, mealType: MealType) => void;
@@ -16,6 +19,7 @@ const MEAL_TYPES: { type: MealType; label: string }[] = [
   { type: 'breakfast', label: 'Frühstück' },
   { type: 'lunch', label: 'Mittagessen' },
   { type: 'dinner', label: 'Abendessen' },
+  { type: 'snacks', label: 'Snacks' },
 ];
 
 function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
@@ -49,13 +53,10 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
         )}
         {isEditingServings ? (
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-            <input
-              className="input"
-              type="number"
-              min="1"
+            <ServingsInput
               value={editServings}
-              onChange={(e) => setEditServings(parseFloat(e.target.value) || 0)}
-              onBlur={() => { if (!editServings) setEditServings(1); }}
+              onChange={setEditServings}
+              onSubmit={handleSaveServings}
               style={{ width: '44px', padding: '2px 4px', fontSize: '12px' }}
             />
             <button className="btn btn-primary btn-sm" onClick={handleSaveServings} style={{ padding: '2px 6px' }}>OK</button>
@@ -65,7 +66,7 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
             onClick={() => { setEditServings(entry.servings); setIsEditingServings(true); }}
             style={{ cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}
           >
-            {Number(entry.servings.toFixed(1))} P.
+            {entry.servings.toLocaleString('de-DE', { maximumFractionDigits: 2 })} P.
           </span>
         )}
         <button
@@ -90,6 +91,7 @@ function MobileMealItem({ entry, meal }: { entry: MealPlanEntry; meal: Meal }) {
           meal={meal}
           servings={entry.servings}
           entryId={entry.id}
+          entryDate={entry.date}
           onClose={() => setShowRecipe(false)}
           onEdit={() => { setShowRecipe(false); setShowEdit(true); }}
           onToggleStar={() => toggleMealStar(meal.id)}
@@ -352,9 +354,12 @@ export const MobileDayView: React.FC<MobileDayViewProps> = ({ onAddRequest }) =>
           return (
             <div key={date} className="mobile-day-page">
               <div className="mobile-day-header">
-                {format(parseISO(date), 'EEEE', { locale: de })}
-                <span className="mobile-day-date"> {format(parseISO(date), 'dd.MM.')}</span>
-                <DayNutritionDot date={date} />
+                <DayLabel date={date} layout="inline" />
+                <span className="day-badges">
+                  <DayPersonsBadge date={date} />
+                  <CoffeeChip date={date} />
+                  <TrainingChip date={date} />
+                </span>
               </div>
 
               {MEAL_TYPES.map(({ type, label }) => {

@@ -2,7 +2,7 @@
 /**
  * Plausibility test for the micronutrient estimation routine.
  *
- * Runs the real estimation prompt (same MICRO_PROMPT_FRAGMENT + parseMicros as production)
+ * Runs the real estimation prompt (server/nutritionEstimate.js, same as production)
  * on a handful of single-ingredient reference foods with known nutrient content (USDA / BLS),
  * then checks each estimate is:
  *   - finite and >= 0
@@ -21,13 +21,14 @@ import { readFileSync } from 'fs';
 import toml from '@iarna/toml';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { MICRO_PROMPT_FRAGMENT, MICRO_KEYS, parseMicros } from '../server/nutritionMicros.js';
+import { MICRO_KEYS } from '../server/nutritionMicros.js';
+import { NUTRITION_MODEL, NUTRITION_SYSTEM_PROMPT, cleanJsonResponse, parseNutritionEstimate } from '../server/nutritionEstimate.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
 const modelArg = process.argv.indexOf('--model');
-const MODEL = modelArg !== -1 ? process.argv[modelArg + 1] : 'gpt-5.2';
+const MODEL = modelArg !== -1 ? process.argv[modelArg + 1] : NUTRITION_MODEL;
 
 const config = toml.parse(readFileSync(join(rootDir, 'openai_credentials.toml'), 'utf-8'));
 const openai = new OpenAI({ apiKey: config.key });
@@ -78,26 +79,16 @@ const FIXTURES = [
   },
 ];
 
-const SYSTEM_PROMPT = `Du bist ein Ernährungsexperte. Schätze die Nährwerte für die folgenden Zutaten. Die Mengen sind bereits für EINE Portion angegeben.
-
-Gib das Ergebnis als JSON zurück:
-{ "kcal": number, "protein": number, "carbs": number, "fat": number, "fiber": number, "sugar": number }
-
-Runde die Makro-Nährwerte auf ganze Zahlen.
-Antworte NUR mit dem JSON-Objekt.
-${MICRO_PROMPT_FRAGMENT}`;
-
 async function estimate(ingredient, name) {
   const completion = await openai.chat.completions.create({
     model: MODEL,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: NUTRITION_SYSTEM_PROMPT },
       { role: 'user', content: `Zutaten für 1 Portion "${name}":\n${ingredient}` },
     ],
   });
   const text = completion.choices[0]?.message?.content || '{}';
-  const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return parseMicros(JSON.parse(cleaned));
+  return parseNutritionEstimate(JSON.parse(cleanJsonResponse(text))).nutrition;
 }
 
 const GREEN = '\x1b[32m', RED = '\x1b[31m', YELLOW = '\x1b[33m', DIM = '\x1b[2m', RESET = '\x1b[0m';

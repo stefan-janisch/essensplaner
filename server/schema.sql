@@ -22,9 +22,21 @@ CREATE TABLE IF NOT EXISTS weight_history (
 );
 CREATE INDEX IF NOT EXISTS idx_weight_history_user ON weight_history(user_id, date);
 
--- Immutable per-user nutrition log (opt-in via users.nutrition_log_enabled). Each row is a
--- denormalized snapshot of a cooked/checked-off plan entry so it survives deletion of the
--- plan, entry, or recipe; only user_id cascades. Normalization per person happens at report time.
+-- Daily "Active Energy" from Apple Health, pushed by an iOS Shortcut via /api/activity/ingest
+-- (token auth, users.health_token_hash). A later push for the same day overwrites it, so a
+-- day sent while still in progress gets its final value on the next run.
+CREATE TABLE IF NOT EXISTS activity_days (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  active_kcal REAL NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, date)
+);
+
+-- Per-user nutrition log (opt-in via users.nutrition_log_enabled). Each row is a denormalized
+-- snapshot of a planned entry up to today, kept in sync with the plan while the entry exists
+-- (reconcileNutritionLogs) and kept as history once plan or recipe are deleted; only user_id
+-- cascades. Normalization per person happens at report time.
 CREATE TABLE IF NOT EXISTS nutrition_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -81,6 +93,11 @@ CREATE TABLE IF NOT EXISTS meals (
   prep_time INTEGER,
   total_time INTEGER,
   nutrition_per_serving TEXT,
+  -- Estimated weight of one ready-to-eat serving in grams (AI, see server/portionWeight.js).
+  portion_weight_g INTEGER,
+  is_quick INTEGER NOT NULL DEFAULT 0,
+  -- Drink template for the ☕ counter (a QuickMeal that is hidden from the QuickMeal picker).
+  is_drink INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_meals_user_id ON meals(user_id);
@@ -155,16 +172,28 @@ CREATE TABLE IF NOT EXISTS disabled_slots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
-  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner')),
+  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks')),
   UNIQUE(plan_id, date, meal_type)
 );
 CREATE INDEX IF NOT EXISTS idx_disabled_slots_plan ON disabled_slots(plan_id);
+
+-- Per-day person count for a plan. Overrides meal_plans.default_servings for that one day;
+-- it is what day totals are divided by to get per-person values, and the default portion
+-- count for meals added to that day. Absent row = use the plan's count.
+CREATE TABLE IF NOT EXISTS plan_day_persons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  persons INTEGER NOT NULL,
+  UNIQUE(plan_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_day_persons_plan ON plan_day_persons(plan_id);
 
 CREATE TABLE IF NOT EXISTS plan_slot_notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
-  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner')),
+  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks')),
   note TEXT NOT NULL,
   UNIQUE(plan_id, date, meal_type)
 );
@@ -188,3 +217,24 @@ CREATE TABLE IF NOT EXISTS ingredient_conversions (
   UNIQUE(ingredient_name, from_unit, to_unit)
 );
 CREATE INDEX IF NOT EXISTS idx_conv_name ON ingredient_conversions(ingredient_name);
+
+CREATE TABLE IF NOT EXISTS meal_shares (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_meal_shares_token ON meal_shares(token);
+
+-- AI estimate of a canteen's day menu (NAPO, Mensa): every dish and side of that day separately,
+-- so switching dishes later costs no new AI call. Kept 24 h and at least until the menu day is
+-- over; menu_key changes when the published menu does.
+CREATE TABLE IF NOT EXISTS canteen_estimates (
+  canteen TEXT NOT NULL,
+  date TEXT NOT NULL,
+  menu_key TEXT NOT NULL,
+  result TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (canteen, date)
+);

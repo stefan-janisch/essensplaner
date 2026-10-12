@@ -1,4 +1,4 @@
-import { DndContext, DragOverlay } from '@dnd-kit/core';
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useState, useMemo, type ReactNode } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
@@ -9,8 +9,7 @@ import { ShoppingList } from './ShoppingList';
 import { MobileDayView } from './MobileDayView';
 import { MobileBottomTabs, type MobileTab } from './MobileBottomTabs';
 import { calculateNutritionGap } from '../utils/dailyNutrition';
-import { getDayTargets } from '../utils/nutritionCalculator';
-import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
+import { personsForDate } from '../utils/dayPersons';
 import type { Meal, MealType, NutritionInfo } from '../types/index.js';
 import React from 'react';
 
@@ -24,21 +23,26 @@ interface PlanViewLayoutProps {
 }
 
 export function PlanViewLayout({ onBack, children, planType = 'weekly' }: PlanViewLayoutProps) {
-  const { addMealToSlot, moveEntry, activePlan, allMealsForActivePlan, nutritionTargets, defaultServings, nutritionProfile } = useMealPlan();
+  const { addMealToSlot, moveEntry, activePlan, allMealsForActivePlan, defaultServings, targetsForDate } = useMealPlan();
   const isMobile = useIsMobile();
   const [activeMeal, setActiveMeal] = useState<Meal | null>(null);
   const [activeTab, setActiveTab] = useState<MobileTab>('plan');
   const [addTarget, setAddTarget] = useState<{ date: string; mealType: MealType } | null>(null);
 
+  // Maus: Drag ab 5px Bewegung. Touch (iPad): erst nach kurzem Halten, damit Scrollen weiter funktioniert.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+    useSensor(KeyboardSensor)
+  );
+
   // Compute nutrition gap for the target date
   const nutritionGap = useMemo<NutritionInfo | null>(() => {
     if (!addTarget || !activePlan) return null;
-    const dayTargets = nutritionProfile
-      ? getDayTargets(nutritionProfile, addTarget.date)
-      : (nutritionTargets ?? DEFAULT_NUTRITION_TARGETS);
-    const planServings = activePlan.defaultServings ?? defaultServings;
-    return calculateNutritionGap(addTarget.date, activePlan.entries || [], allMealsForActivePlan, dayTargets, planServings);
-  }, [addTarget, activePlan, allMealsForActivePlan, nutritionTargets, defaultServings, nutritionProfile]);
+    const dayTargets = targetsForDate(addTarget.date);
+    const dayPersons = personsForDate(activePlan, addTarget.date, defaultServings);
+    return calculateNutritionGap(addTarget.date, activePlan.entries || [], allMealsForActivePlan, dayTargets, dayPersons);
+  }, [addTarget, activePlan, allMealsForActivePlan, defaultServings, targetsForDate]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const meal = event.active.data.current?.meal;
@@ -142,25 +146,28 @@ export function PlanViewLayout({ onBack, children, planType = 'weekly' }: PlanVi
   }
 
   return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div style={{ padding: '24px 32px', width: '85%', margin: '0 auto' }}>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="plan-view-container">
         <DateRangeSelector onBack={onBack} />
 
-        <div className="meal-plan-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', minWidth: '0' }}>
-          <div>
+        <div className="meal-plan-grid">
+          <div className="meal-plan-grid-main">
             <MenuAddContext.Provider value={handleAddRequest}>
               {children}
             </MenuAddContext.Provider>
-            <ShoppingList />
           </div>
 
-          <div style={{ position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 200px)', overflow: 'hidden' }}>
+          <div className="meal-plan-grid-side">
             <MealHistory
               tapMode={addTarget}
               onTapSelect={handleTapSelect}
               onCancelTap={handleCancelAdd}
               nutritionGap={nutritionGap}
             />
+          </div>
+
+          <div className="meal-plan-grid-shopping">
+            <ShoppingList />
           </div>
         </div>
       </div>

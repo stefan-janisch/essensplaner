@@ -1,13 +1,11 @@
 import { useMealPlan } from '../context/MealPlanContext';
 import { getMealNutritionColors, COLOR_HEX, getPerMealTargets, calculateOptimalMultiplier } from '../utils/nutritionColors';
 import { computeNutritionScore, getScoreColor } from '../utils/nutritionScore';
-import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import type { Meal } from '../types/index.js';
 
 export function useRecipeNutritionColors(meal: Meal) {
-  const { nutritionTargets, mealsPerDay } = useMealPlan();
-  const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
-  const perMeal = getPerMealTargets(targets, mealsPerDay);
+  const { todayTargets, mealsPerDay } = useMealPlan();
+  const perMeal = getPerMealTargets(todayTargets, mealsPerDay);
   if (!meal.nutritionPerServing) return null;
   // The 6 per-macro dots stay a balance signal — evaluated at the optimal portion size, not 1×.
   const M = calculateOptimalMultiplier(meal.nutritionPerServing, perMeal);

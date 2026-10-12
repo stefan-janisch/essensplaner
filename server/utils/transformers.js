@@ -16,5 +16,8 @@ export function rowToMeal(row) {
     prepTime: row.prep_time,
     totalTime: row.total_time,
     nutritionPerServing: row.nutrition_per_serving ? JSON.parse(row.nutrition_per_serving) : undefined,
+    portionWeight: row.portion_weight_g ?? undefined,
+    isQuick: row.is_quick === 1 || undefined,
+    isDrink: row.is_drink === 1 || undefined,
   };
 }

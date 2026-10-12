@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { readHabit, sanitizeHabit, resetCoffeeHabit, resolveToday } from '../coffee.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Recipe list sort orders — keep in sync with `SortBy` in src/utils/mealFilters.ts.
+const RECIPE_SORTS = new Set(['name', 'rating', 'newest', 'kcal', 'protein', 'proteinDensity', 'fiber', 'sugar', 'score']);
+const DEFAULT_RECIPE_SORT = 'score';
 
 // Normalize an arbitrary value into a clean array of ingredient-name strings.
 function sanitizeIngredientList(value) {
@@ -23,12 +28,13 @@ function sanitizeIngredientList(value) {
   return result;
 }
 
-router.get('/', (req, res) => {
-  const user = db.prepare('SELECT default_servings, nutrition_targets, meals_per_day, nutrition_profile, use_optimal_portions, pantry_staples, fresh_ingredients, nutrition_log_enabled FROM users WHERE id = ?').get(req.userId);
-  if (!user) {
-    return res.status(404).json({ error: 'Benutzer nicht gefunden' });
-  }
-  res.json({
+// Settings as the client sees them (camelCase), or null for an unknown user.
+function readSettings(userId) {
+  const user = db.prepare(`SELECT default_servings, nutrition_targets, meals_per_day, nutrition_profile, use_optimal_portions,
+    pantry_staples, fresh_ingredients, nutrition_log_enabled, default_recipe_sort,
+    health_enabled, health_active_factor, health_token_hash, flexible_sport_enabled FROM users WHERE id = ?`).get(userId);
+  if (!user) return null;
+  return {
     defaultServings: user.default_servings,
     nutritionTargets: user.nutrition_targets ? JSON.parse(user.nutrition_targets) : null,
     mealsPerDay: user.meals_per_day,
@@ -37,11 +43,25 @@ router.get('/', (req, res) => {
     pantryStaples: user.pantry_staples ? JSON.parse(user.pantry_staples) : [],
     freshIngredients: user.fresh_ingredients ? JSON.parse(user.fresh_ingredients) : [],
     nutritionLogEnabled: !!user.nutrition_log_enabled,
-  });
+    defaultRecipeSort: RECIPE_SORTS.has(user.default_recipe_sort) ? user.default_recipe_sort : DEFAULT_RECIPE_SORT,
+    healthEnabled: !!user.health_enabled,
+    healthActiveFactor: user.health_active_factor,
+    healthTokenSet: !!user.health_token_hash,
+    coffeeHabit: readHabit(userId),
+    flexibleSportEnabled: !!user.flexible_sport_enabled,
+  };
+}
+
+router.get('/', (req, res) => {
+  const settings = readSettings(req.userId);
+  if (!settings) {
+    return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+  }
+  res.json(settings);
 });
 
 router.put('/', (req, res) => {
-  const { defaultServings, nutritionTargets, mealsPerDay, nutritionProfile, useOptimalPortions, pantryStaples, freshIngredients, nutritionLogEnabled } = req.body;
+  const { defaultServings, nutritionTargets, mealsPerDay, nutritionProfile, useOptimalPortions, pantryStaples, freshIngredients, nutritionLogEnabled, defaultRecipeSort, healthEnabled, healthActiveFactor, coffeeHabit, today, flexibleSportEnabled } = req.body;
 
   if (defaultServings != null) {
     if (defaultServings < 1) {
@@ -59,8 +79,32 @@ router.put('/', (req, res) => {
     db.prepare('UPDATE users SET use_optimal_portions = ? WHERE id = ?').run(useOptimalPortions ? 1 : 0, req.userId);
   }
 
+  if (defaultRecipeSort !== undefined) {
+    if (!RECIPE_SORTS.has(defaultRecipeSort)) {
+      return res.status(400).json({ error: 'Ungültige Sortierung' });
+    }
+    db.prepare('UPDATE users SET default_recipe_sort = ? WHERE id = ?').run(defaultRecipeSort, req.userId);
+  }
+
   if (nutritionLogEnabled !== undefined) {
     db.prepare('UPDATE users SET nutrition_log_enabled = ? WHERE id = ?').run(nutritionLogEnabled ? 1 : 0, req.userId);
+  }
+
+  if (healthEnabled !== undefined) {
+    db.prepare('UPDATE users SET health_enabled = ? WHERE id = ?').run(healthEnabled ? 1 : 0, req.userId);
+  }
+
+  if (flexibleSportEnabled !== undefined) {
+    db.prepare('UPDATE users SET flexible_sport_enabled = ? WHERE id = ?').run(flexibleSportEnabled ? 1 : 0, req.userId);
+  }
+
+  if (healthActiveFactor != null) {
+    const factor = Number(healthActiveFactor);
+    if (!Number.isFinite(factor)) {
+      return res.status(400).json({ error: 'Ungültiger Anrechnungsfaktor' });
+    }
+    db.prepare('UPDATE users SET health_active_factor = ? WHERE id = ?')
+      .run(Math.max(0.5, Math.min(1, factor)), req.userId);
   }
 
   if (nutritionTargets !== undefined) {
@@ -95,17 +139,14 @@ router.put('/', (req, res) => {
       .run(JSON.stringify(sanitizeIngredientList(freshIngredients)), req.userId);
   }
 
-  const user = db.prepare('SELECT default_servings, nutrition_targets, meals_per_day, nutrition_profile, use_optimal_portions, pantry_staples, fresh_ingredients, nutrition_log_enabled FROM users WHERE id = ?').get(req.userId);
-  res.json({
-    defaultServings: user.default_servings,
-    nutritionTargets: user.nutrition_targets ? JSON.parse(user.nutrition_targets) : null,
-    mealsPerDay: user.meals_per_day,
-    nutritionProfile: user.nutrition_profile ? JSON.parse(user.nutrition_profile) : null,
-    useOptimalPortions: !!user.use_optimal_portions,
-    pantryStaples: user.pantry_staples ? JSON.parse(user.pantry_staples) : [],
-    freshIngredients: user.fresh_ingredients ? JSON.parse(user.fresh_ingredients) : [],
-    nutritionLogEnabled: !!user.nutrition_log_enabled,
-  });
+  // ☕ Daily habit: future untouched habit entries are replaced on the next plan load.
+  if (coffeeHabit !== undefined) {
+    db.prepare('UPDATE users SET coffee_habit = ? WHERE id = ?')
+      .run(JSON.stringify(sanitizeHabit(coffeeHabit, req.userId)), req.userId);
+    resetCoffeeHabit(req.userId, resolveToday(today));
+  }
+
+  res.json(readSettings(req.userId));
 });
 
 // Weight history

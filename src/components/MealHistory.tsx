@@ -2,16 +2,20 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeCard, RecipeDetailModal, EditRecipeModal, CreateRecipeModal } from './RecipeManagement';
+import { QuickMealPicker } from './QuickMealPicker';
+import { RecipeRow } from './RecipeRow';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { requiredDensity } from '../utils/proteinPlanning';
+import { computeProteinDensity, formatProteinDensity } from '../utils/nutritionScore';
 import { getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
-import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
+import { filterMeals, sortMeals, buildTagValuesByGroup, SORT_OPTIONS } from '../utils/mealFilters';
 import type { SortBy, RatingComparator } from '../utils/mealFilters';
 import { computeMissingIngredients, normalizeIngredientName } from '../utils/ingredientMatch';
 import { IngredientChipInput } from './IngredientChipInput';
 import { INGREDIENT_GROUP_LABELS } from '../constants/ingredientGroups';
 import type { Meal, MealType, MealPlanEntry, NutritionInfo } from '../types/index.js';
 import { calculateOptimalMultiplier, getPerMealTargets, NUTRITION_KEYS } from '../utils/nutritionColors';
-import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 
@@ -53,7 +57,7 @@ function computeAdditionalIngredients(
   return result;
 }
 
-function DraggableRecipeCard({ meal, onEdit, onSetRating, hideNutrition }: { meal: Meal; onEdit: () => void; onSetRating: (r: number) => void; hideNutrition?: boolean }) {
+function DraggableRecipeCard({ meal, onEdit, onSetRating, hideNutrition, asRow }: { meal: Meal; onEdit: () => void; onSetRating: (r: number) => void; hideNutrition?: boolean; asRow?: boolean }) {
   const { toggleMealStar, deleteMeal } = useMealPlan();
   const [showRecipe, setShowRecipe] = useState(false);
 
@@ -74,6 +78,14 @@ function DraggableRecipeCard({ meal, onEdit, onSetRating, hideNutrition }: { mea
 
   return (
     <div ref={setNodeRef} style={style}>
+      {asRow ? (
+        <RecipeRow
+          meal={meal}
+          onClick={() => setShowRecipe(true)}
+          hideNutrition={hideNutrition}
+          dragHandleProps={{ ...listeners, ...attributes }}
+        />
+      ) : (
       <RecipeCard
         meal={meal}
         compact
@@ -85,6 +97,7 @@ function DraggableRecipeCard({ meal, onEdit, onSetRating, hideNutrition }: { mea
         dragHandleProps={{ ...listeners, ...attributes }}
         hideNutrition={hideNutrition}
       />
+      )}
       {showRecipe && (
         <RecipeDetailModal
           meal={meal}
@@ -105,6 +118,8 @@ interface MealHistoryProps {
   nutritionGap?: NutritionInfo | null;
 }
 
+const VIEW_KEY = 'essensplaner_recipe_view';
+
 const MEAL_TYPE_LABELS: Record<string, string> = {
   breakfast: 'Frühstück',
   lunch: 'Mittagessen',
@@ -115,7 +130,10 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
 };
 
 export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, onCancelTap, nutritionGap }) => {
-  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal, nutritionTargets, mealsPerDay, pantryStaples, setPantryStaples, freshIngredients, setFreshIngredients } = useMealPlan();
+  const { state, activePlan, updateMeal, toggleMealStar, deleteMeal, targetsForDate, todayTargets, mealsPerDay, pantryStaples, setPantryStaples, freshIngredients, setFreshIngredients, defaultRecipeSort } = useMealPlan();
+  const [showQuickMeal, setShowQuickMeal] = useState(false);
+  const isMobile = useIsMobile();
+  // Most recent quick meals, one per name, for one-click reuse.
   const [searchQuery, setSearchQuery] = useState('');
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -124,20 +142,37 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
   const [ratingComparator, setRatingComparator] = useState<RatingComparator>('gte');
-  const [sortBy, setSortBy] = useState<SortBy>('score');
+  // null = follow the user's default sort setting until a sort is picked here.
+  const [sortOverride, setSortBy] = useState<SortBy | null>(null);
+  const sortBy = sortOverride ?? defaultRecipeSort;
   const [minProtein, setMinProtein] = useState<number | ''>('');
   const [showFilters, setShowFilters] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showNutritionIndicators, setShowNutritionIndicators] = useState(true);
+  // Compact rows vs. big photo cards. Default follows the device (phone: rows); an explicit
+  // choice is remembered per browser.
+  const [viewPref, setViewPref] = useState<'rows' | 'cards' | null>(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      return v === 'rows' || v === 'cards' ? v : null;
+    } catch { return null; }
+  });
+  const rowView = (viewPref ?? (isMobile ? 'rows' : 'cards')) === 'rows';
+  const toggleView = () => {
+    const next = rowView ? 'cards' : 'rows';
+    setViewPref(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* storage blocked */ }
+  };
   const [smartMode, setSmartMode] = useState(false);
   const [nutriFitMode, setNutriFitMode] = useState(false);
+  const [deficitFitMode, setDeficitFitMode] = useState(false);
   const [vorratMode, setVorratMode] = useState(false);
   const [showVorratEdit, setShowVorratEdit] = useState(false);
   const [randomIds, setRandomIds] = useState<string[] | null>(null);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
-    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'score' ? 1 : 0)
+    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== defaultRecipeSort ? 1 : 0)
     + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0) + (minProtein !== '' ? 1 : 0);
 
   const categories = useMemo(() =>
@@ -149,7 +184,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
 
   const filteredMeals = useMemo(() =>
     filterMeals(state.meals, { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator, minProtein }),
-    [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator]
+    [state.meals, starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery, ratingFilter, ratingComparator, minProtein]
   );
 
   const sortedMeals = useMemo(() =>
@@ -169,10 +204,23 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
   }, [smartMode, filteredMeals, planEntries, planMealIds, state.meals]);
 
   // Nutrifit scoring: how well does a meal fill the day's nutrition gap?
+  // Protein density the target day still needs to reach its protein target within the kcal budget.
+  const proteinNeed = useMemo(
+    () => (nutritionGap ? requiredDensity({ protein: nutritionGap.protein, kcal: nutritionGap.kcal }) : null),
+    [nutritionGap],
+  );
+  const finiteNeed = typeof proteinNeed === 'number' && Number.isFinite(proteinNeed) ? proteinNeed : null;
+  const deficitFilterActive = deficitFitMode && finiteNeed !== null;
+
+  // Per-meal reference from the targets of the day being planned (today's without a target day).
+  const tapDate = tapMode?.date;
+  const perMeal = useMemo(
+    () => getPerMealTargets(tapDate ? targetsForDate(tapDate) : todayTargets, mealsPerDay),
+    [tapDate, targetsForDate, todayTargets, mealsPerDay],
+  );
+
   const nutriFitScores = useMemo(() => {
     if (!nutriFitMode || !nutritionGap) return null;
-    const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
-    const perMeal = getPerMealTargets(targets, mealsPerDay);
     const scores = new Map<string, number>();
     for (const meal of state.meals) {
       if (!meal.nutritionPerServing) { scores.set(meal.id, Infinity); continue; }
@@ -187,7 +235,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
       scores.set(meal.id, totalDev);
     }
     return scores;
-  }, [nutriFitMode, nutritionGap, state.meals, nutritionTargets, mealsPerDay]);
+  }, [nutriFitMode, nutritionGap, state.meals, perMeal]);
 
   // "Aus Vorrat" — ingredient vocabulary for autocomplete + missing-ingredient map
   const ingredientSuggestions = useMemo(() => {
@@ -215,6 +263,10 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
     if (randomIds) {
       return randomIds.map(id => state.meals.find(m => m.id === id)).filter(Boolean) as Meal[];
     }
+    if (deficitFilterActive) {
+      const density = (m: Meal) => computeProteinDensity(m.nutritionPerServing) ?? 0;
+      return filteredMeals.filter(m => density(m) >= finiteNeed!).sort((a, b) => density(b) - density(a));
+    }
     if (vorratMode && vorratMissingMap) {
       return [...filteredMeals].sort((a, b) => {
         const am = vorratMissingMap.get(a.id)?.missingCount ?? Infinity;
@@ -235,7 +287,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         if (aExtra !== bExtra) return aExtra - bExtra;
         return a.name.localeCompare(b.name);
       });
-  }, [randomIds, smartMode, nutriFitMode, nutriFitScores, vorratMode, vorratMissingMap, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals]);
+  }, [randomIds, smartMode, nutriFitMode, nutriFitScores, vorratMode, vorratMissingMap, sortedMeals, filteredMeals, planMealIds, additionalIngredientsMap, state.meals, deficitFilterActive, finiteNeed]);
 
   const pickRandom = useCallback(() => {
     const pool = filteredMeals.length > 3 ? filteredMeals : state.meals;
@@ -259,7 +311,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
     setMaxTotalTime('');
     setRatingFilter('');
     setRatingComparator('gte');
-    setSortBy('name');
+    setSortBy(null);
     setStarFilter('all');
     setMinProtein('');
   };
@@ -277,16 +329,48 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
           <button className="btn btn-ghost btn-sm" onClick={onCancelTap}>Abbrechen</button>
         </div>
       )}
+      {tapMode && nutritionGap && !tapMode.date.startsWith('course_') && (
+        finiteNeed !== null ? (
+          // One line; the whole row toggles "only fitting recipes".
+          <button
+            type="button"
+            className={`tap-protein-hint tap-protein-hint-toggle${deficitFitMode ? ' is-active' : ''}`}
+            onClick={() => { setDeficitFitMode(!deficitFitMode); setSmartMode(false); setVorratMode(false); setNutriFitMode(false); setRandomIds(null); }}
+            aria-pressed={deficitFitMode}
+            title={`Passt ins Defizit: mindestens ${formatProteinDensity(finiteNeed)} g Protein pro 100 kcal (noch ${nutritionGap.protein} g Protein · ${nutritionGap.kcal} kcal). Antippen: nur passende Rezepte, dichteste zuerst.`}
+          >
+            <span className="tap-protein-need">💪 ≥ {formatProteinDensity(finiteNeed)} g P/100 kcal</span>
+            <span className="tap-protein-gap">noch {nutritionGap.protein} g P · {nutritionGap.kcal} kcal</span>
+            <span className="tap-protein-switch" aria-hidden />
+          </button>
+        ) : (
+          <div className="tap-protein-hint">
+            {proteinNeed === null
+              ? 'Proteinziel für diesen Tag erreicht ✓'
+              : `Kalorienbudget ausgeschöpft – noch ${nutritionGap.protein} g Protein offen`}
+          </div>
+        )
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
         <h3 style={{ margin: 0, color: 'var(--text-h)' }}>Rezepte ({displayMeals.length})</h3>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>+ Neu</button>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={toggleView}
+            title={rowView ? 'Große Karten anzeigen' : 'Kompakte Liste anzeigen'}
+            aria-label={rowView ? 'Große Karten anzeigen' : 'Kompakte Liste anzeigen'}
+          >
+            {rowView ? '▦' : '☰'}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>+ Neu</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
         {planEntries.length > 0 && (
           <button
             className={`pill ${smartMode ? 'pill-active' : ''}`}
-            onClick={() => { setSmartMode(!smartMode); setVorratMode(false); setNutriFitMode(false); setRandomIds(null); }}
+            onClick={() => { setSmartMode(!smartMode); setVorratMode(false); setNutriFitMode(false); setRandomIds(null); setDeficitFitMode(false); }}
             style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
           >
             🧩 Passt zum Plan
@@ -294,14 +378,14 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         )}
         <button
           className={`pill ${vorratMode ? 'pill-active' : ''}`}
-          onClick={() => { setVorratMode(!vorratMode); setSmartMode(false); setNutriFitMode(false); setRandomIds(null); }}
+          onClick={() => { setVorratMode(!vorratMode); setSmartMode(false); setNutriFitMode(false); setRandomIds(null); setDeficitFitMode(false); }}
           style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
         >
           🥕 Aus Vorrat
         </button>
         <button
           className={`pill ${randomIds ? 'pill-active' : ''}`}
-          onClick={() => { if (randomIds) { setRandomIds(null); } else { pickRandom(); } }}
+          onClick={() => { if (randomIds) { setRandomIds(null); } else { pickRandom(); setDeficitFitMode(false); } }}
           style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
         >
           🎲 Zufällig
@@ -309,7 +393,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         {nutritionGap && (
           <button
             className={`pill ${nutriFitMode ? 'pill-active' : ''}`}
-            onClick={() => { setNutriFitMode(!nutriFitMode); setSmartMode(false); setVorratMode(false); setRandomIds(null); }}
+            onClick={() => { setNutriFitMode(!nutriFitMode); setSmartMode(false); setVorratMode(false); setRandomIds(null); setDeficitFitMode(false); }}
             style={{ fontSize: '12px', padding: '3px 10px', flex: 1 }}
           >
             🎯 Nährstoff-Fit
@@ -363,8 +447,26 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
         style={{ width: '100%', marginBottom: '8px' }}
       />
 
-      {/* Scrollable area: filters + recipe cards */}
+      {/* Scrollable area: QuickMeal, filters + recipe cards. Der QuickMeal-Einstieg steht
+          bewusst MIT im Scrollbereich — fixiert kostete er auf dem Handy dauerhaft Platz über
+          der Rezeptliste. */}
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+      {tapMode && onTapSelect && !tapMode.date.startsWith('course_') && (
+        <div className="quick-meal-entry">
+          <button className="btn btn-muted" onClick={() => setShowQuickMeal(true)}>
+            🍽️ QuickMeal{isMobile ? '' : <small> · Kantine, Snack, Fertigprodukt …</small>}
+          </button>
+          {showQuickMeal && (
+            <QuickMealPicker
+              date={tapMode.date}
+              subtitle={`${MEAL_TYPE_LABELS[tapMode.mealType] || tapMode.mealType} · ${format(parseISO(tapMode.date), 'EEEE dd.MM.', { locale: de })}`}
+              onClose={() => setShowQuickMeal(false)}
+              onSelect={m => { setShowQuickMeal(false); onTapSelect(m.id); }}
+              requiredProteinDensity={finiteNeed ?? undefined}
+            />
+          )}
+        </div>
+      )}
       {/* Collapsible filters */}
       <div style={{ marginBottom: '10px' }}>
         <button
@@ -417,14 +519,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                 <option value="90">≤ 90 Min.</option>
               </select>
               <select className="input" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} style={{ flex: 1, fontSize: '11px', padding: '4px 6px' }}>
-                <option value="score">Nährwert-Score ↓</option>
-                <option value="name">A-Z</option>
-                <option value="rating">Bewertung</option>
-                <option value="newest">Neueste</option>
-                <option value="kcal">Kalorien ↑</option>
-                <option value="protein">Protein ↓</option>
-                <option value="fiber">Ballaststoffe ↓</option>
-                <option value="sugar">Zug. Zucker ↑</option>
+                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
 
@@ -506,7 +601,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
             {randomIds ? 'Keine Rezepte vorhanden' : smartMode ? 'Keine passenden Rezepte gefunden' : searchQuery.trim() || activeFilterCount > 0 ? 'Keine Treffer' : 'Keine Rezepte vorhanden'}
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div className={`meal-history-list${rowView ? ' meal-history-list-rows' : ''}`}>
             {displayMeals.map(meal => {
               const info = additionalIngredientsMap?.get(meal.id);
               const vorratInfo = vorratMissingMap?.get(meal.id);
@@ -533,10 +628,8 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                     </div>
                   )}
                   {nutriFitMode && nutritionGap && meal.nutritionPerServing && (() => {
-                    const targets = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
-                    const perMeal = getPerMealTargets(targets, mealsPerDay);
                     const M = calculateOptimalMultiplier(meal.nutritionPerServing, perMeal);
-                    const labels: Record<string, string> = { kcal: 'kcal', protein: 'P', carbs: 'K', fat: 'F', fiber: 'B' };
+                    const labels: Record<string, string> = { kcal: 'kcal', protein: 'P', carbs: 'KH', fat: 'F', fiber: 'B' };
                     const parts: string[] = [];
                     for (const key of NUTRITION_KEYS) {
                       if (key === 'sugar') continue;
@@ -552,11 +645,19 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                       </div>
                     );
                   })()}
-                  {tapMode && onTapSelect ? (
+                  {rowView && tapMode && onTapSelect ? (
+                    <RecipeRow
+                      meal={meal}
+                      onClick={() => onTapSelect(meal.id)}
+                      hideNutrition={!showNutritionIndicators}
+                      requiredProteinDensity={finiteNeed ?? undefined}
+                    />
+                  ) : tapMode && onTapSelect ? (
                     <div onClick={() => onTapSelect(meal.id)} style={{ cursor: 'pointer' }}>
                       <RecipeCard
                         meal={meal}
                         compact
+                        requiredProteinDensity={finiteNeed ?? undefined}
                         onEdit={() => setEditingMeal(meal)}
                         onDelete={() => { if (confirm(`Rezept "${meal.name}" wirklich löschen?`)) deleteMeal(meal.id); }}
                         onToggleStar={() => toggleMealStar(meal.id)}
@@ -570,6 +671,7 @@ export const MealHistory: React.FC<MealHistoryProps> = ({ tapMode, onTapSelect, 
                       onEdit={() => setEditingMeal(meal)}
                       onSetRating={(r) => handleSetRating(meal.id, r)}
                       hideNutrition={!showNutritionIndicators}
+                      asRow={rowView}
                     />
                   )}
                 </div>

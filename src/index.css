@@ -20,6 +20,11 @@
   --color-danger-light: #f5e8e8;
   --color-warning: #b8860b;
   --color-warning-hover: #9a7209;
+  --color-health: #c2255c;
+  --color-health-bg: rgba(214, 51, 108, 0.08);
+  --score-text-green: #2b8a3e;
+  --score-text-yellow: #d9480f;
+  --score-text-red: #c92a2a;
   --color-muted: #6b7445;
   --color-muted-hover: #5a623a;
 
@@ -29,8 +34,14 @@
   --surface-2: #edece6;
   --surface-meal: #f9f7f0;
   --surface-drop: #eef3e6;
+  --surface-highlight: #e0e7ff;
 
   /* Borders */
+  /* Grüner Verlauf für Rezepte ohne Foto — siehe .visual-meal-card-photo-placeholder */
+  --placeholder-from: #97c576;
+  --placeholder-via: #6ca651;
+  --placeholder-to: #4e7d39;
+
   --border-light: #e8e6e1;
   --border-input: #d0cdc7;
 
@@ -90,14 +101,24 @@
     --color-danger-light: rgba(166,61,64,0.12);
     --color-warning: #d4a84b;
     --color-warning-hover: #e0be6e;
+    --color-health: #f06595;
+    --color-health-bg: rgba(240, 101, 149, 0.12);
+    --score-text-green: #69db7c;
+    --score-text-yellow: #ffa94d;
+    --score-text-red: #ff8787;
     --color-muted: #8f9870;
     --color-muted-hover: #a5ad88;
+
+    --placeholder-from: #446535;
+    --placeholder-via: #36502c;
+    --placeholder-to: #263821;
 
     --surface-0: #1e1f22;
     --surface-1: #24261f;
     --surface-2: #2e3028;
     --surface-meal: rgba(249,247,240,0.04);
     --surface-drop: rgba(108,166,81,0.1);
+    --surface-highlight: rgba(129, 140, 248, 0.16);
 
     --border-light: #2e303a;
     --border-input: #3d3f4c;

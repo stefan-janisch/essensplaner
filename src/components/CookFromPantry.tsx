@@ -7,7 +7,7 @@ import {
   SlotPickerModal,
 } from './RecipeManagement';
 import { IngredientChipInput } from './IngredientChipInput';
-import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
+import { filterMeals, sortMeals, buildTagValuesByGroup, SORT_OPTIONS } from '../utils/mealFilters';
 import type { SortBy, RatingComparator } from '../utils/mealFilters';
 import { computeMissingIngredients } from '../utils/ingredientMatch';
 import { normalizeIngredientName } from '../utils/ingredientMatch';
@@ -191,13 +191,7 @@ export const CookFromPantry: React.FC = () => {
             onChange={(e) => setSortBy(e.target.value as CookSortBy)}
           >
             <option value="match">Passende zuerst</option>
-            <option value="name">Name A-Z</option>
-            <option value="rating">Bewertung</option>
-            <option value="newest">Neueste</option>
-            <option value="kcal">Kalorien ↑</option>
-            <option value="protein">Protein ↓</option>
-            <option value="fiber">Ballaststoffe ↓</option>
-            <option value="sugar">Zug. Zucker ↑</option>
+            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <button
             className="btn-ghost"

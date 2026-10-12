@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useVisualMode } from '../hooks/useVisualMode';
+import { PlanScoreBadge } from './PlanScoreBadge';
 
 interface DateRangeSelectorProps {
   onBack: () => void;
@@ -14,6 +16,7 @@ function formatDateDE(dateStr: string): string {
 export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) => {
   const { activePlan, defaultServings, updatePlanServings, useOptimalPortions, setUseOptimalPortions } = useMealPlan();
   const isMobile = useIsMobile();
+  const [visualMode, setVisualMode] = useVisualMode();
 
   const planServings = activePlan?.defaultServings ?? defaultServings;
   const [localServings, setLocalServings] = useState(String(planServings));
@@ -63,6 +66,7 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
           {React.cloneElement(servingsInput, { style: { width: '40px', textAlign: 'center', padding: '3px 4px', fontSize: '13px' } })}
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>P</span>
+          {activePlan.planType !== 'menu' && <PlanScoreBadge plan={activePlan} interactive size="sm" />}
           <button
             className={`pill ${useOptimalPortions ? 'pill-active' : ''}`}
             onClick={() => setUseOptimalPortions(!useOptimalPortions)}
@@ -96,8 +100,12 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
       </div>
 
       <div className="servings-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-        <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>Personen:</label>
+        <label style={{ fontSize: '13px', whiteSpace: 'nowrap' }}
+          title="Gilt für alle Tage des Plans. Einzelne Tage kannst du über 👥 beim Datum abweichend setzen.">
+          Personen:
+        </label>
         {React.cloneElement(servingsInput, { style: { width: '56px', textAlign: 'center', padding: '4px 8px' } })}
+        {activePlan.planType !== 'menu' && <PlanScoreBadge plan={activePlan} interactive />}
         <button
           className={`pill ${useOptimalPortions ? 'pill-active' : ''}`}
           onClick={() => setUseOptimalPortions(!useOptimalPortions)}
@@ -105,6 +113,14 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({ onBack }) 
           style={{ fontSize: '12px', padding: '3px 8px', whiteSpace: 'nowrap' }}
         >
           🎯 Optimal
+        </button>
+        <button
+          className={`pill ${visualMode ? 'pill-active' : ''}`}
+          onClick={() => setVisualMode(!visualMode)}
+          title="Visuellen Modus umschalten"
+          style={{ fontSize: '12px', padding: '3px 8px', whiteSpace: 'nowrap' }}
+        >
+          🖼️ Visuell
         </button>
       </div>
     </div>

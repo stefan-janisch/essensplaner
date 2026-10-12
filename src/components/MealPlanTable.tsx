@@ -1,13 +1,20 @@
 import React, { useState, useContext } from 'react';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
 import { format, parseISO, eachDayOfInterval } from 'date-fns';
-import { de } from 'date-fns/locale';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeDetailModal, EditRecipeModal } from './RecipeManagement';
 import type { MealType, Meal, MealPlanEntry, ExtraItem } from '../types/index.js';
-import { DayNutritionDot } from './DayNutritionDot';
+import { DayLabel } from './DayLabel';
+import { DayPersonsBadge } from './DayPersonsBadge';
+import { CoffeeChip } from './CoffeeChip';
+import { TrainingChip } from './TrainingChip';
 import { MenuAddContext } from './PlanViewLayout';
 import { useSlotNote } from '../hooks/useSlotNote';
+import { useMealCellItemActions } from '../hooks/useMealCellItemActions';
+import { useVisualMode } from '../hooks/useVisualMode';
+import { VisualMealCell } from './VisualMealCell';
+import { formatPortionWeight, portionWeightTitle } from '../utils/portionWeight';
+import { ServingsInput } from './ServingsInput';
 
 export interface MealCellItemProps {
   entry: MealPlanEntry;
@@ -15,42 +22,29 @@ export interface MealCellItemProps {
 }
 
 export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
-  const { removeEntry, toggleEntryEnabled, updateEntryServings, toggleMealStar, updateMeal } = useMealPlan();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editServings, setEditServings] = useState(entry.servings);
-  const [showRecipeCard, setShowRecipeCard] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    dragStyle,
+    isDragging,
+    isEditing,
+    editServings,
+    setEditServings,
+    showRecipeCard,
+    setShowRecipeCard,
+    showEdit,
+    setShowEdit,
+    handleRemove,
+    handleToggleEnabled,
+    handleEditServings,
+    handleSaveServings,
+    toggleMealStar,
+    updateMeal,
+  } = useMealCellItemActions({ entry, meal });
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `entry:${entry.id}`,
-    data: { entryId: entry.id, meal, sourceDate: entry.date, sourceMealType: entry.mealType },
-    disabled: !entry.enabled,
-  });
-
-  const dragStyle = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
-
-  const handleRemove = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    removeEntry(entry.id);
-  };
-
-  const handleToggleEnabled = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleEntryEnabled(entry.id);
-  };
-
-  const handleEditServings = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditServings(entry.servings);
-    setIsEditing(true);
-  };
-
-  const handleSaveServings = () => {
-    updateEntryServings(entry.id, editServings);
-    setIsEditing(false);
-  };
+  const portionWeight = formatPortionWeight(meal, entry.servings);
+  const portionWeightHint = portionWeightTitle(meal, entry.servings);
 
   return (
     <div
@@ -103,15 +97,11 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
       </div>
       {isEditing ? (
         <div style={{ display: 'flex', gap: '5px', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}>
-          <input
-            className="input"
-            type="number"
-            min="1"
+          <ServingsInput
             value={editServings}
-            onChange={(e) => setEditServings(parseFloat(e.target.value) || 0)}
-            onBlur={() => { if (!editServings) setEditServings(1); }}
+            onChange={setEditServings}
+            onSubmit={handleSaveServings}
             style={{ width: '50px', padding: '3px 6px', fontSize: '12px' }}
-            onClick={(e) => e.stopPropagation()}
           />
           <span style={{ fontSize: '12px' }}>Port.</span>
           <button className="btn btn-primary btn-sm" onClick={handleSaveServings}>OK</button>
@@ -119,8 +109,11 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
       ) : (
         <div style={{ fontSize: '11px', color: 'var(--text)', textAlign: 'center' }}>
           <span onClick={handleEditServings} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
-            {Number(entry.servings.toFixed(1))} Portion{entry.servings !== 1 ? 'en' : ''}
+            {entry.servings.toLocaleString('de-DE', { maximumFractionDigits: 2 })} Portion{entry.servings !== 1 ? 'en' : ''}
           </span>
+          {portionWeight && (
+            <span className="portion-weight" title={portionWeightHint}> · {portionWeight}</span>
+          )}
           {' · '}
           <span onClick={handleRemove} style={{ cursor: 'pointer', color: 'var(--color-danger)' }}>
             Entfernen
@@ -133,6 +126,7 @@ export const MealCellItem: React.FC<MealCellItemProps> = ({ entry, meal }) => {
           meal={meal}
           servings={entry.servings}
           entryId={entry.id}
+          entryDate={entry.date}
           onClose={() => setShowRecipeCard(false)}
           onEdit={() => { setShowRecipeCard(false); setShowEdit(true); }}
           onToggleStar={() => toggleMealStar(meal.id)}
@@ -387,6 +381,7 @@ const ExtrasCell: React.FC<{ category: ExtraItem['category'] }> = ({ category })
 
 export const MealPlanTable: React.FC = () => {
   const { activePlan } = useMealPlan();
+  const [visualMode] = useVisualMode();
 
   if (!activePlan) {
     return (
@@ -406,32 +401,64 @@ export const MealPlanTable: React.FC = () => {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table className="meal-table">
-        <thead>
-          <tr>
-            <th>Datum</th>
-            <th>Frühstück</th>
-            <th>Mittagessen</th>
-            <th>Abendessen</th>
-          </tr>
-        </thead>
-        <tbody>
+      {visualMode ? (
+        <div className="visual-plan-grid">
+          <div className="visual-plan-grid-header-cell">Datum</div>
+          <div className="visual-plan-grid-header-cell">Frühstück</div>
+          <div className="visual-plan-grid-header-cell">Mittagessen</div>
+          <div className="visual-plan-grid-header-cell">Abendessen</div>
+          <div className="visual-plan-grid-header-cell">Snacks</div>
           {dates.map(date => (
-            <tr key={date}>
-              <td style={{ whiteSpace: 'nowrap', fontSize: '12px', lineHeight: 1.4 }}>
-                <div style={{ fontWeight: 600 }}>{format(parseISO(date), 'EEEE', { locale: de })}</div>
-                <div style={{ color: 'var(--text)' }}>{format(parseISO(date), 'dd.MM.yyyy')}</div>
-                <DayNutritionDot date={date} />
-              </td>
-              <MealCell date={date} mealType="breakfast" />
-              <MealCell date={date} mealType="lunch" />
-              <MealCell date={date} mealType="dinner" />
-            </tr>
+            <React.Fragment key={date}>
+              <div className="visual-day-label">
+                <DayLabel date={date} layout="stacked" />
+                <span className="day-badges">
+                  <DayPersonsBadge date={date} />
+                  <CoffeeChip date={date} />
+                  <TrainingChip date={date} />
+                </span>
+              </div>
+              <VisualMealCell date={date} mealType="breakfast" />
+              <VisualMealCell date={date} mealType="lunch" />
+              <VisualMealCell date={date} mealType="dinner" />
+              <VisualMealCell date={date} mealType="snacks" />
+            </React.Fragment>
           ))}
-        </tbody>
-      </table>
+        </div>
+      ) : (
+        <table className="meal-table">
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Frühstück</th>
+              <th>Mittagessen</th>
+              <th>Abendessen</th>
+              <th>Snacks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dates.map(date => (
+              <tr key={date}>
+                <td style={{ whiteSpace: 'nowrap', fontSize: '12px', lineHeight: 1.4 }}>
+                  <DayLabel date={date} layout="stacked" />
+                  <span className="day-badges">
+                    <DayPersonsBadge date={date} />
+                    <CoffeeChip date={date} />
+                    <TrainingChip date={date} />
+                  </span>
+                </td>
+                <MealCell date={date} mealType="breakfast" />
+                <MealCell date={date} mealType="lunch" />
+                <MealCell date={date} mealType="dinner" />
+                <MealCell date={date} mealType="snacks" />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
-      <table className="meal-table" style={{ marginTop: '24px' }}>
+      <div className="extras-caption">Für den ganzen Plan — nur Einkaufsliste, ohne Nährwerte</div>
+      <table className="meal-table" style={{ marginTop: '6px' }}>
         <thead>
           <tr>
             <th>Snacks</th>

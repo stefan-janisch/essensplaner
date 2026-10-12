@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import rateLimit from 'express-rate-limit';
 import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { hasNapoAccess } from './napo.js';
+import { hasMensaAccess } from './mensa.js';
 
 const router = Router();
 
@@ -78,7 +80,9 @@ router.post('/login', authLimiter, async (req, res) => {
       id: user.id,
       email: user.email,
       defaultServings: user.default_servings,
-      isAdmin: !!user.is_admin
+      isAdmin: !!user.is_admin,
+      napoMenu: hasNapoAccess(user.email),
+      mensaMenu: hasMensaAccess(user.email),
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -109,7 +113,9 @@ router.get('/me', requireAuth, (req, res) => {
     id: user.id,
     email: user.email,
     defaultServings: user.default_servings,
-    isAdmin: !!user.is_admin
+    isAdmin: !!user.is_admin,
+    napoMenu: hasNapoAccess(user.email),
+    mensaMenu: hasMensaAccess(user.email),
   });
 });
 

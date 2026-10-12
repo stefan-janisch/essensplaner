@@ -39,9 +39,11 @@ Express server (no TypeScript) with SQLite database (via `better-sqlite3`).
 
 **Route files:**
 - `server/routes/auth.js` — register, login, logout, me, migrate
-- `server/routes/meals.js` — CRUD + star toggle + rename-ingredient + photo upload/delete
+- `server/routes/meals.js` — CRUD + star toggle + rename-ingredient + photo upload/delete + QuickMeals (`POST/PUT /quick`, `GET /quick/usage`, `PATCH /:id/quick` = Rezept ⇄ QuickMeal)
 - `server/routes/plans.js` — plan CRUD + bulk entry upsert + slot update + swap
 - `server/routes/settings.js` — get/update defaultServings
+- `server/routes/napo.js` / `server/routes/mensa.js` — personal canteen menus (only accounts in `NAPO_EMAILS`/`MENSA_EMAILS`, flags `user.napoMenu`/`user.mensaMenu`), parsed without AI and cached 1 h. NAPO = HTML of napopizza.at/campus; Mensa Inffeldgasse = GraphQL `backend.mensen.at/api` (`menuplanCurrentWeek/NextWeek` JSON, dishes + soups, desserts dropped). Estimates in index.js (`CANTEEN_ESTIMATORS`): `POST /api/{napo,mensa}-menu/estimate` (all dishes + sides of a day, ≤ 4 items per parallel AI call), `GET …/estimate?date=` = cached only; cached in `canteen_estimates` for 24 h and at least until the menu day is over. Client: `utils/canteens.ts` + `CanteenMenus` (both canteens side by side, swipeable pages on mobile).
+- `server/routes/activity.js` — Apple Health active energy: `POST /ingest` (bearer token from `users.health_token_hash`, no session — called by an iOS Shortcut), `GET /`, token create/revoke. Mounted at `/api/activity` (`/api/health` is the health check).
 
 **Middleware:** `server/middleware/auth.js` — `requireAuth` checks `req.session.userId`.
 
@@ -65,3 +67,6 @@ Session secret read from `SESSION_SECRET` env var.
 - Ingredients stored as JSON column on meals table (not normalized).
 - Meals have optional fields: `rating` (1-5), `category`, `tags` (JSON array), `photoUrl`.
 - Multiple meal plans per user, each with its own date range and entries.
+- Flexible sport mode (`users.flexible_sport_enabled`, toggle in Ernährungsrechner → Training): trainings are logged per day in the plan (`training_logs`, `/api/trainings`, 🏃 chip `TrainingChip.tsx`) instead of the fixed `weekDayTypes` schedule. `src/utils/sportModel.ts`: kcal = (MET − 1) × kg × h. The context's `sport` model is passed like `activity` to `getDayEnergy`/`getDayTargets`/`resolveDayTargets`: base TDEE drops the weekly training average; a day = baseline + its trainings (source `'training'`). With Apple Health, measured days keep the measurement (training already in it); unmeasured days use baseline + trainings instead of the weekday average.
+- ☕ Coffee (`server/coffee.js`, `src/components/CoffeeChip.tsx`): drinks are QuickMeals with `is_drink = 1` (hidden from the QuickMeal picker). Cups are **personal** plan entries — `meal_type = 'drinks'` on a real date, `personal_user_id` = the drinker, `servings` = cups — only returned to that user (`GET /api/plans/:id`) and counted fully for them (`sumDay` skips the persons divisor; nutrition log uses persons = 1). Set via `PUT /api/plans/:id/coffee`. The daily habit (`users.coffee_habit`) is pre-filled on plan load from the client's `?today=` on (`auto_habit` entries, `coffee_habit_fill` remembers how far); changing the habit replaces only untouched future days.
+- Apple Health mode (`users.health_enabled`): `src/utils/activityModel.ts` builds a 6-week per-weekday average of `activity_days`; `getDayEnergy`/`getDayTargets` in `nutritionCalculator.ts` then use BMR × 1.1 + active kcal × `health_active_factor` instead of the activity-level/training heuristic (measured value for past days, weekday average from today on). Nutrition targets are always per day: use the context's `targetsForDate(date)` (or `todayTargets` where there is no date, e.g. recipe lists) — never the stored `nutritionTargets` directly, which only apply without a nutrition profile.

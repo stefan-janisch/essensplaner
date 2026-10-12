@@ -57,8 +57,6 @@ export type WeekDayTypes = {
   fri: DayType; sat: DayType; sun: DayType;
 };
 
-export type MicroKey = 'magnesiumMg' | 'zincMg' | 'ironMg' | 'vitaminDIu' | 'omega3G' | 'calciumMg';
-
 export type NutritionProfile = {
   age: number;
   gender: 'm' | 'f';
@@ -71,7 +69,9 @@ export type NutritionProfile = {
   goal: FitnessGoal;
   aggressiveness: number; // 0-100
   weekDayTypes: WeekDayTypes;
-  supplementedMicros?: MicroKey[]; // micros covered by supplements
+  /** Micros covered by supplements (keys of MicroNutrients); older profiles may still hold
+   *  calculator keys like 'vitaminDIu' — read via normalizeSupplementedMicros(). */
+  supplementedMicros?: string[];
 };
 
 export const DEFAULT_NUTRITION_PROFILE: NutritionProfile = {
@@ -87,20 +87,27 @@ export const DEFAULT_NUTRITION_PROFILE: NutritionProfile = {
   weekDayTypes: { mon: 'strength', tue: 'rest', wed: 'strength', thu: 'cardio', fri: 'strength', sat: 'rest', sun: 'rest' },
 };
 
+/** Flexible sport mode: a training logged for one day in the plan. */
+export type TrainingType = 'cardio' | 'strength' | 'sport' | 'mobility';
+export type Training = {
+  id: number;
+  date: string;
+  type: TrainingType;
+  intensity: TrainingIntensity;
+  minutes: number;
+};
+
+/** One day of Apple Health "Active Energy" (kcal), pushed by the iOS Shortcut. */
+export type ActivityDay = {
+  date: string;
+  activeKcal: number;
+};
+
 export type WeightEntry = {
   id: number;
   date: string;
   weight: number;
   bodyFat?: number;
-};
-
-export type MicroTargets = {
-  magnesiumMg: number;
-  zincMg: number;
-  ironMg: number;
-  vitaminDIu: number;
-  omega3G: number;
-  calciumMg: number;
 };
 
 export type CalculatedNutrition = {
@@ -115,7 +122,6 @@ export type CalculatedNutrition = {
   carbsKcal: number;
   fiberG: number;
   waterL: number;
-  micros: MicroTargets;
 };
 
 export type Ingredient = {
@@ -142,6 +148,33 @@ export type Meal = {
   prepTime?: number;
   totalTime?: number;
   nutritionPerServing?: NutritionInfo & Partial<MicroNutrients>;
+  /**
+   * AI-estimated weight of ONE ready-to-eat serving in grams — ingredients plus the water
+   * a dish soaks up or boils off (server/portionWeight.js). Makes fractional portion counts
+   * ("1,3 Portionen") judgeable. Undefined until estimated.
+   */
+  portionWeight?: number;
+  /** Meal eaten without recipe (canteen etc.): nutrition only, hidden from recipe lists. */
+  isQuick?: boolean;
+  /** ☕ Drink template (a QuickMeal) for the per-day coffee counter — not in the QuickMeal picker. */
+  isDrink?: boolean;
+}
+
+/** Payload for creating/updating a quick meal. */
+export type QuickMealData = {
+  name: string;
+  description?: string;
+  breakdown?: string;
+  nutritionPerServing: NutritionInfo & Partial<MicroNutrients>;
+  removePhoto?: boolean;
+  /** Create a ☕ drink instead of a QuickMeal (only read on create). */
+  isDrink?: boolean;
+}
+
+/** ☕ Daily coffee habit: these drinks are pre-planned on every day from today on. */
+export type CoffeeHabitItem = {
+  mealId: string;
+  count: number;
 }
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks' | 'drinks' | 'misc' | 'food';
@@ -162,6 +195,11 @@ export type MealPlanEntry = {
   mealId: string;
   servings: number;
   enabled: boolean;
+  /**
+   * ☕ Personal entry (coffee, meal type 'drinks' on a plan day): only visible to its user and
+   * counted fully for them — not divided by the day's persons. `servings` = cups.
+   */
+  personal?: boolean;
 }
 
 export type Collaborator = {
@@ -190,6 +228,16 @@ export type SlotNote = {
   note: string;
 }
 
+/**
+ * Person count for one day of a plan. Overrides `MealPlan.defaultServings` for that day:
+ * it is what the day's totals are divided by for per-person values, and the default portion
+ * count when a meal is added to that day. No entry = the plan's count applies.
+ */
+export type DayPersons = {
+  date: string;
+  persons: number;
+}
+
 export type MealPlan = {
   id: number;
   name: string;
@@ -202,6 +250,7 @@ export type MealPlan = {
   extras: ExtraItem[];
   disabledSlots?: DisabledSlot[];
   slotNotes?: SlotNote[];
+  dayPersons?: DayPersons[];
   excludedIngredients?: string[];
   courses?: MenuCourse[];
   createdAt?: string;
@@ -223,6 +272,10 @@ export type User = {
   email: string;
   defaultServings: number;
   isAdmin?: boolean;
+  /** Personal feature: NAPO campus lunch menu in the quick meal dialog. */
+  napoMenu?: boolean;
+  /** Personal feature: Mensa Inffeldgasse menu in the quick meal dialog. */
+  mensaMenu?: boolean;
   nutritionTargets?: NutritionTargets;
   mealsPerDay?: number;
 }

@@ -5,32 +5,59 @@ import { requireAuth } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth);
 
-// Snapshot every entry the user marked as COOKED — in this app's workflow the ✗ marker
-// (enabled = 0) means "I cooked this" — up to and including today, that isn't logged yet.
-// INSERT OR IGNORE + UNIQUE(user_id, entry_id) make it idempotent, so it can run on every read.
-// persons = plan.default_servings, falling back to user.default_servings.
-const reconcileStmt = db.prepare(`
-  INSERT OR IGNORE INTO nutrition_logs
+// Log every planned entry up to and including today — whether or not it is marked cooked (✗);
+// the report counts what is in the plans, like the day score does. While an entry exists its row
+// follows the plan (servings, persons, recipe values, date); the WHERE on the update skips
+// unchanged rows, so running this on every read stays cheap. Rows whose plan, entry or recipe
+// was deleted keep their last snapshot (history survives plan cleanup — agreed behavior).
+// persons = the day's own count if one is set for that date, else plan.default_servings,
+// falling back to user.default_servings.
+// Personal entries (☕ coffee) are logged for their user — also in plans shared with them — and
+// count fully (persons = 1); other users' personal entries in the user's own plans are skipped.
+const upsertStmt = db.prepare(`
+  INSERT INTO nutrition_logs
     (user_id, plan_id, entry_id, meal_id, meal_name, date, meal_type, servings, persons, nutrition_per_serving)
   SELECT
-    p.user_id, e.plan_id, e.id, e.meal_id, m.name, e.date, e.meal_type, e.servings,
-    COALESCE(p.default_servings, u.default_servings, 1), m.nutrition_per_serving
+    @userId, e.plan_id, e.id, e.meal_id, m.name, e.date, e.meal_type, e.servings,
+    CASE WHEN e.personal_user_id IS NOT NULL THEN 1
+         ELSE COALESCE(dp.persons, p.default_servings, u.default_servings, 1) END,
+    m.nutrition_per_serving
   FROM meal_plan_entries e
   JOIN meal_plans p ON p.id = e.plan_id
   JOIN users u ON u.id = p.user_id
   JOIN meals m ON m.id = e.meal_id
-  WHERE p.user_id = ?
-    AND e.enabled = 0
+  LEFT JOIN plan_day_persons dp ON dp.plan_id = e.plan_id AND dp.date = e.date
+  WHERE ((p.user_id = @userId AND e.personal_user_id IS NULL) OR e.personal_user_id = @userId)
     AND e.date <= date('now')
+  ON CONFLICT(user_id, entry_id) DO UPDATE SET
+    plan_id = excluded.plan_id, meal_id = excluded.meal_id, meal_name = excluded.meal_name,
+    date = excluded.date, meal_type = excluded.meal_type, servings = excluded.servings,
+    persons = excluded.persons, nutrition_per_serving = excluded.nutrition_per_serving
+  WHERE nutrition_logs.meal_id IS NOT excluded.meal_id
+     OR nutrition_logs.meal_name IS NOT excluded.meal_name
+     OR nutrition_logs.date IS NOT excluded.date
+     OR nutrition_logs.meal_type IS NOT excluded.meal_type
+     OR nutrition_logs.servings IS NOT excluded.servings
+     OR nutrition_logs.persons IS NOT excluded.persons
+     OR nutrition_logs.nutrition_per_serving IS NOT excluded.nutrition_per_serving
+`);
+
+// Entries moved past today (or into a menu course) leave the log until their day comes.
+const unplannedStmt = db.prepare(`
+  DELETE FROM nutrition_logs
+  WHERE user_id = ?
+    AND entry_id IN (
+      SELECT e.id FROM meal_plan_entries e JOIN meal_plans p ON p.id = e.plan_id
+      WHERE ((p.user_id = ? AND e.personal_user_id IS NULL) OR e.personal_user_id = ?)
+        AND NOT (e.date <= date('now'))
+    )
 `);
 
 // Bring the log up to date for a user. No-op unless the user has the log enabled in settings.
-// "Cooked" = the ✗ marker (enabled = 0). Known, accepted edge case: an entry re-marked or moved
-// after being logged keeps its original immutable snapshot.
 export function reconcileNutritionLogs(userId) {
   const user = db.prepare('SELECT nutrition_log_enabled FROM users WHERE id = ?').get(userId);
   if (!user || !user.nutrition_log_enabled) return 0;
-  return reconcileStmt.run(userId).changes;
+  return db.transaction(() => upsertStmt.run({ userId }).changes + unplannedStmt.run(userId, userId, userId).changes)();
 }
 
 // Distinct months (YYYY-MM) that have log data — feeds the report's month navigator.

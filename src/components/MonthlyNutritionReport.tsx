@@ -5,7 +5,9 @@ import { buildMonthlyReport } from '../utils/monthlyReport';
 import type { NutritionLogEntry, MicroStatus } from '../utils/monthlyReport';
 import type { NutrientStatus } from '../utils/nutritionColors';
 import { COLOR_HEX } from '../utils/nutritionColors';
+import { formatProteinDensity } from '../utils/nutritionScore';
 
+const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
@@ -41,13 +43,13 @@ function MacroDonut({ protein, carbs, fat }: { protein: number; carbs: number; f
   );
 }
 
-function Bar({ label, actual, target, percent, color, unit }:
-  { label: string; actual: number; target: number; percent: number; color: string; unit: string }) {
+function Bar({ label, actual, target, percent, color, unit, supplemented }:
+  { label: string; actual: number; target: number; percent: number; color: string; unit: string; supplemented?: boolean }) {
   return (
-    <div className="report-bar-row">
-      <span className="report-bar-label">{label}</span>
+    <div className="report-bar-row" title={supplemented ? 'Supplementiert — wird nicht als Mangel gewertet' : undefined}>
+      <span className="report-bar-label">{label}{supplemented && <span className="report-supplement-tag">💊</span>}</span>
       <div className="report-bar-track">
-        <div className="report-bar-fill" style={{ width: `${Math.min(100, Math.max(0, percent))}%`, background: COLOR_HEX[color as keyof typeof COLOR_HEX] }} />
+        <div className="report-bar-fill" style={{ width: `${Math.min(100, Math.max(0, percent))}%`, background: supplemented ? COLOR_HEX.gray : COLOR_HEX[color as keyof typeof COLOR_HEX] }} />
       </div>
       <span className="report-bar-value">{actual}{unit} <span className="report-bar-target">/ {target}{unit}</span> · {percent}%</span>
     </div>
@@ -55,7 +57,7 @@ function Bar({ label, actual, target, percent, color, unit }:
 }
 
 export function MonthlyNutritionReport({ month: initialMonth }: { month?: string }) {
-  const { nutritionProfile, nutritionTargets, nutritionLogEnabled } = useMealPlan();
+  const { nutritionProfile, nutritionTargets, nutritionLogEnabled, activity, sport } = useMealPlan();
   const [month, setMonth] = useState(initialMonth || currentMonth());
   const [months, setMonths] = useState<string[]>([]);
   const [logs, setLogs] = useState<NutritionLogEntry[]>([]);
@@ -89,8 +91,8 @@ export function MonthlyNutritionReport({ month: initialMonth }: { month?: string
   }, [month]);
 
   const report = useMemo(
-    () => buildMonthlyReport(logs, nutritionProfile, nutritionTargets, month),
-    [logs, nutritionProfile, nutritionTargets, month],
+    () => buildMonthlyReport(logs, nutritionProfile, nutritionTargets, month, activity, sport),
+    [logs, nutritionProfile, nutritionTargets, month, activity, sport],
   );
 
   const isCurrent = month === currentMonth();
@@ -120,11 +122,36 @@ export function MonthlyNutritionReport({ month: initialMonth }: { month?: string
         <p className="report-muted">Lädt…</p>
       ) : report.daysWithData === 0 ? (
         <div className="report-empty">
-          <p>Für {monthLabel(month)} liegen noch keine gekochten Mahlzeiten vor.</p>
-          <p className="report-muted">Markiere Mahlzeiten im Plan als gekocht (Status ✗) – sie werden bis einschließlich heute automatisch erfasst.</p>
+          <p>Für {monthLabel(month)} liegen noch keine geplanten Mahlzeiten vor.</p>
+          <p className="report-muted">Alle Mahlzeiten in deinen Plänen werden bis einschließlich heute automatisch erfasst.</p>
         </div>
       ) : (
         <>
+          {/* Heatmap — first: the month at a glance */}
+          <section className="report-section report-section-lead">
+            <h3>Tagesübersicht</h3>
+            <div className="report-heatmap">
+              {WEEKDAY_LABELS.map(d => <div key={d} className="report-heat-weekday">{d}</div>)}
+              {/* Calendar layout, one row per week: blanks before the 1st up to its weekday (Mo = 0). */}
+              {report.heatmap.length > 0 && Array.from(
+                { length: (new Date(report.heatmap[0].date).getUTCDay() + 6) % 7 },
+                (_, i) => <div key={`blank-${i}`} />,
+              )}
+              {report.heatmap.map(h => (
+                <div key={h.date} className="report-heat-cell" title={h.score !== null ? `${h.date} · Tages-Score ${h.score}` : h.date}
+                  style={{ background: h.color === 'gray' ? COLOR_HEX.gray : COLOR_HEX[h.color] }}>
+                  {Number(h.date.slice(-2))}
+                </div>
+              ))}
+            </div>
+            <div className="report-heat-legend">
+              <span><i style={{ background: COLOR_HEX.green }} />Score ≥ 70</span>
+              <span><i style={{ background: COLOR_HEX.yellow }} />Score 40–69</span>
+              <span><i style={{ background: COLOR_HEX.red }} />Score &lt; 40</span>
+              <span><i style={{ background: COLOR_HEX.gray }} />keine Daten</span>
+            </div>
+          </section>
+
           {/* Coverage cards */}
           <div className="report-cards">
             <div className="report-card">
@@ -138,6 +165,12 @@ export function MonthlyNutritionReport({ month: initialMonth }: { month?: string
             <div className="report-card">
               <div className="report-card-num">{Math.round(report.microCoverage * 100)}%</div>
               <div className="report-card-label">mit Mikro-Daten</div>
+            </div>
+            <div className="report-card" title="Durchschnittliches Protein pro 100 kcal an den geloggten Tagen">
+              <div className="report-card-num" style={{ color: report.proteinDensity >= report.targetProteinDensity ? COLOR_HEX.green : COLOR_HEX.yellow }}>
+                {formatProteinDensity(report.proteinDensity)}
+              </div>
+              <div className="report-card-label">g Protein/100 kcal (nötig ≥ {formatProteinDensity(report.targetProteinDensity)})</div>
             </div>
           </div>
           <p className="report-muted report-note">
@@ -195,27 +228,8 @@ export function MonthlyNutritionReport({ month: initialMonth }: { month?: string
             )}
             <div className={`report-bars report-micro-bars${report.microDataSufficient ? '' : ' report-dimmed'}`}>
               {report.micros.map((m: MicroStatus) => (
-                <Bar key={m.key} label={m.label} actual={m.actual} target={m.target} percent={m.percent} color={m.color} unit={m.unit} />
+                <Bar key={m.key} label={m.label} actual={m.actual} target={m.target} percent={m.percent} color={m.color} unit={m.unit} supplemented={m.supplemented} />
               ))}
-            </div>
-          </section>
-
-          {/* Heatmap */}
-          <section className="report-section">
-            <h3>Tagesübersicht</h3>
-            <div className="report-heatmap">
-              {report.heatmap.map(h => (
-                <div key={h.date} className="report-heat-cell" title={h.date}
-                  style={{ background: h.color === 'gray' ? COLOR_HEX.gray : COLOR_HEX[h.color] }}>
-                  {Number(h.date.slice(-2))}
-                </div>
-              ))}
-            </div>
-            <div className="report-heat-legend">
-              <span><i style={{ background: COLOR_HEX.green }} />ausgewogen</span>
-              <span><i style={{ background: COLOR_HEX.yellow }} />grenzwertig</span>
-              <span><i style={{ background: COLOR_HEX.red }} />unausgewogen</span>
-              <span><i style={{ background: COLOR_HEX.gray }} />keine Daten</span>
             </div>
           </section>
         </>

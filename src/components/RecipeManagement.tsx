@@ -1,19 +1,25 @@
 import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { api } from '../api/client.js';
 import { useMealPlan } from '../context/MealPlanContext';
 import { RecipeForm } from './RecipeForm';
 import { ModalPortal } from './Modal';
 import { RECIPE_CATEGORIES, getCategoryLabel } from '../constants/categories';
 import { TAG_GROUPS } from '../constants/tags';
-import { filterMeals, sortMeals, buildTagValuesByGroup } from '../utils/mealFilters';
+import { filterMeals, sortMeals, buildTagValuesByGroup, SORT_OPTIONS } from '../utils/mealFilters';
 import type { SortBy, RatingComparator } from '../utils/mealFilters';
-import type { Meal } from '../types/index.js';
+import type { Meal, MealType } from '../types/index.js';
 import type { RecipeFormData } from './RecipeForm';
 import { RecipeChat } from './RecipeChat';
+import { QuickMealDialog } from './QuickMealDialog';
+import { ProteinUpgradeModal } from './ProteinUpgradeModal';
 import { NutritionTable } from './NutritionTable';
 import { RecipeNutritionDots, useRecipeNutritionColors } from './RecipeNutritionIndicator';
 import { COLOR_HEX } from '../utils/nutritionColors';
-import { computeNutritionScore, getScoreColor } from '../utils/nutritionScore';
+import { computeNutritionScore, getScoreColor, computeProteinDensity, formatProteinDensity } from '../utils/nutritionScore';
+import { formatPortionWeight, portionWeightTitle } from '../utils/portionWeight';
+import { personsForDate } from '../utils/dayPersons';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -47,8 +53,11 @@ export function RecipeCard({
   compact,
   hideNutrition,
   dragHandleProps,
+  requiredProteinDensity,
 }: {
   meal: Meal;
+  /** Add mode: protein density the target day needs — badge turns green (fits) or fades (too low). */
+  requiredProteinDensity?: number;
   onView?: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -65,6 +74,7 @@ export function RecipeCard({
   const nutritionColors = useRecipeNutritionColors(meal);
   const borderStyle = nutritionColors && !hideNutrition ? { borderBottom: `3px solid ${COLOR_HEX[nutritionColors.overall]}` } : {};
   const score = computeNutritionScore(meal.nutritionPerServing);
+  const proteinDensity = computeProteinDensity(meal.nutritionPerServing);
 
   return (
     <div className="recipe-card" onClick={!dragHandleProps && onView ? onView : undefined} style={{ ...borderStyle, ...(selected ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' } : {}), cursor: !dragHandleProps && onView ? 'pointer' : undefined }}>
@@ -76,12 +86,17 @@ export function RecipeCard({
         {meal.photoUrl ? (
           <img src={`${API_URL}${meal.photoUrl}`} alt={meal.name} style={{ pointerEvents: 'none' }} />
         ) : (
-          <div className="recipe-card-photo-placeholder">🍽️</div>
+          <div className="recipe-card-photo-placeholder" aria-hidden="true" />
         )}
         {!hideNutrition && <RecipeNutritionDots meal={meal} />}
         {!hideNutrition && score !== null && (
           <span className="recipe-score-badge" style={{ backgroundColor: COLOR_HEX[getScoreColor(score)] }}
             title={`Nährwert-Score: ${score}/100`}>{score}</span>
+        )}
+        {!hideNutrition && proteinDensity !== null && (
+          <span className={`recipe-protein-badge${onToggleSelect ? ' recipe-protein-badge-shifted' : ''}${
+            requiredProteinDensity === undefined ? '' : proteinDensity >= requiredProteinDensity ? ' recipe-protein-badge-fits' : ' recipe-protein-badge-short'}`}
+            title={`${formatProteinDensity(proteinDensity)} g Protein pro 100 kcal`}>{formatProteinDensity(proteinDensity)}</span>
         )}
         {onToggleSelect && (
           <input
@@ -111,8 +126,8 @@ export function RecipeCard({
         <div style={{ marginTop: 'auto', paddingTop: '4px' }}>
           <RatingStars rating={meal.rating} size={14} onClick={onSetRating} />
           <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '4px' }}>
-            {meal.ingredients.length} Zutaten • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
-            {(meal.prepTime || meal.totalTime) && (
+            {meal.ingredients.length} Zutat{meal.ingredients.length !== 1 ? 'en' : ''} • {meal.defaultServings} Person{meal.defaultServings !== 1 ? 'en' : ''}
+            {!!(meal.prepTime || meal.totalTime) && (
               <span>
                 {' • '}⏱ {meal.prepTime && meal.totalTime ? `${meal.prepTime}+${meal.totalTime - meal.prepTime}` : meal.totalTime || meal.prepTime} Min.
               </span>
@@ -252,29 +267,51 @@ function formatServings(n: number): string {
   return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)).replace('.', ',');
 }
 
-export function RecipeDetailModal({
+type RecipeDetailModalProps = React.ComponentProps<typeof RecipeDetailContent>;
+
+/** Recipe detail view; QuickMeals (eaten without recipe) open their own dialog instead. */
+export function RecipeDetailModal(props: RecipeDetailModalProps) {
+  if (props.meal.isQuick) return <QuickMealDialog meal={props.meal} onClose={props.onClose} />;
+  return <RecipeDetailContent {...props} />;
+}
+
+function RecipeDetailContent({
   meal,
   servings,
   entryId,
+  entryDate,
   onClose,
   onEdit,
   onDuplicate,
   onToggleStar,
   onSetRating,
+  onImport,
 }: {
   meal: Meal;
   servings?: number;
   entryId?: number;
+  /** Plan date of the entry — the recommended-portion button scales to that day's person count. */
+  entryDate?: string;
   onClose: () => void;
   onEdit?: () => void;
   onDuplicate?: () => void;
   onToggleStar?: () => void;
   onSetRating?: (rating: number) => void;
+  onImport?: () => Promise<void>;
 }) {
-  const { updateMeal, activePlan, defaultServings, updateEntryServings } = useMealPlan();
+  const { updateMeal, activePlan, defaultServings, updateEntryServings, state, setMealQuick } = useMealPlan();
+  const readOnly = !!onImport;
+  const [makingQuick, setMakingQuick] = useState(false);
+  const [showMoreActions, setShowMoreActions] = useState(false);
+  const isMobile = useIsMobile();
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const isOwnRecipe = !readOnly && state.meals.some(m => m.id === meal.id);
   const [duplicating, setDuplicating] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
   const [commentText, setCommentText] = useState(meal.comment || '');
+  type ShareState = null | 'loading' | { token: string; url: string };
+  const [shareState, setShareState] = useState<ShareState>(null);
+  const [copyDone, setCopyDone] = useState(false);
 
   const planEntriesForMeal = (activePlan?.entries || []).filter(
     e => e.mealId === meal.id && e.enabled
@@ -293,6 +330,8 @@ export function RecipeDetailModal({
   const [servingsDraft, setServingsDraft] = useState('');
   const [editingServings, setEditingServings] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState(false);
 
   const displayServings = scale * meal.defaultServings;
   const canBatchCook = planOccurrences >= 2 && planTotalServings > baseServings;
@@ -352,30 +391,186 @@ export function RecipeDetailModal({
             </div>
           </div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-          {meal.recipeUrl && (
-            <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer" className="btn btn-muted" style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>
-              🔗 Rezept
-            </a>
+        <div className="recipe-detail-actions">
+          {onImport && (
+            <button
+              className="btn btn-accent"
+              disabled={importing || imported}
+              style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+              onClick={async () => {
+                setImporting(true);
+                try { await onImport(); setImported(true); } finally { setImporting(false); }
+              }}
+            >
+              {imported ? 'Importiert ✓' : importing ? '…' : 'In Essensplaner importieren'}
+            </button>
           )}
           {onToggleStar && (
             <button className="btn-ghost" onClick={onToggleStar} style={{ fontSize: '20px' }}>
               {meal.starred ? '⭐' : '☆'}
             </button>
           )}
-          {onDuplicate && (
-            <button
-              className="btn btn-muted"
-              disabled={duplicating}
-              onClick={async () => { setDuplicating(true); await onDuplicate(); setDuplicating(false); onClose(); }}
-              style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
-            >
-              {duplicating ? '...' : 'Duplizieren'}
-            </button>
+          {isMobile ? (
+            // Phone: secondary actions in a menu — in one row they ran off the screen.
+            <div className="recipe-detail-more">
+              <button className="btn btn-muted recipe-detail-more-btn" onClick={() => setShowMoreActions(v => !v)}
+                aria-haspopup="menu" aria-expanded={showMoreActions} aria-label="Weitere Aktionen">⋯</button>
+              {showMoreActions && (
+                <>
+                  <div className="recipe-detail-more-backdrop" onClick={() => setShowMoreActions(false)} />
+                  <div className="recipe-detail-more-menu" role="menu" onClick={() => setShowMoreActions(false)}>
+                    {meal.recipeUrl && (
+                      <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer" className="btn btn-muted" style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>
+                        🔗 Rezept
+                      </a>
+                    )}
+                    {!readOnly && <button
+                      className="btn btn-muted"
+                      style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                      onClick={async () => {
+                        if (shareState && shareState !== 'loading') { setShareState(null); return; }
+                        if (shareState === 'loading') return;
+                        setShareState('loading');
+                        try {
+                          const data = await api.post<{ token: string; url: string }>(`/api/meals/${meal.id}/share`);
+                          setShareState(data);
+                        } catch { setShareState(null); }
+                      }}
+                    >
+                      {shareState && shareState !== 'loading' ? 'Teilen ✓' : shareState === 'loading' ? '…' : 'Teilen'}
+                    </button>}
+                    {isOwnRecipe && meal.ingredients.length > 0 && (
+                      <button
+                        className="btn btn-muted"
+                        onClick={() => setShowUpgrade(true)}
+                        title="KI schlägt Tausch-Zutaten für mehr Protein bei gleichen Kalorien vor"
+                        style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                      >
+                        💪 Protein-Upgrade
+                      </button>
+                    )}
+                    {isOwnRecipe && (
+                      <button
+                        className="btn btn-muted"
+                        disabled={makingQuick}
+                        onClick={async () => {
+                          setMakingQuick(true);
+                          try { await setMealQuick(meal.id, true); onClose(); } catch { setMakingQuick(false); }
+                        }}
+                        title="Kein richtiges Rezept (z.B. Fertigprodukt)? Dann steht es künftig unter QuickMeal statt in der Rezeptliste. Einkaufsliste, Nährwerte und Booster-Vorschläge bleiben."
+                        style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                      >
+                        {makingQuick ? '…' : '→ QuickMeal'}
+                      </button>
+                    )}
+                    {onDuplicate && (
+                      <button
+                        className="btn btn-muted"
+                        disabled={duplicating}
+                        onClick={async () => { setDuplicating(true); await onDuplicate(); setDuplicating(false); onClose(); }}
+                        style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                      >
+                        {duplicating ? '...' : 'Duplizieren'}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {meal.recipeUrl && (
+                <a href={meal.recipeUrl} target="_blank" rel="noopener noreferrer" className="btn btn-muted" style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>
+                  🔗 Rezept
+                </a>
+              )}
+              {!readOnly && <button
+                className="btn btn-muted"
+                style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                onClick={async () => {
+                  if (shareState && shareState !== 'loading') { setShareState(null); return; }
+                  if (shareState === 'loading') return;
+                  setShareState('loading');
+                  try {
+                    const data = await api.post<{ token: string; url: string }>(`/api/meals/${meal.id}/share`);
+                    setShareState(data);
+                  } catch { setShareState(null); }
+                }}
+              >
+                {shareState && shareState !== 'loading' ? 'Teilen ✓' : shareState === 'loading' ? '…' : 'Teilen'}
+              </button>}
+              {isOwnRecipe && meal.ingredients.length > 0 && (
+                <button
+                  className="btn btn-muted"
+                  onClick={() => setShowUpgrade(true)}
+                  title="KI schlägt Tausch-Zutaten für mehr Protein bei gleichen Kalorien vor"
+                  style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                >
+                  💪 Protein-Upgrade
+                </button>
+              )}
+              {isOwnRecipe && (
+                <button
+                  className="btn btn-muted"
+                  disabled={makingQuick}
+                  onClick={async () => {
+                    setMakingQuick(true);
+                    try { await setMealQuick(meal.id, true); onClose(); } catch { setMakingQuick(false); }
+                  }}
+                  title="Kein richtiges Rezept (z.B. Fertigprodukt)? Dann steht es künftig unter QuickMeal statt in der Rezeptliste. Einkaufsliste, Nährwerte und Booster-Vorschläge bleiben."
+                  style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                >
+                  {makingQuick ? '…' : '→ QuickMeal'}
+                </button>
+              )}
+              {onDuplicate && (
+                <button
+                  className="btn btn-muted"
+                  disabled={duplicating}
+                  onClick={async () => { setDuplicating(true); await onDuplicate(); setDuplicating(false); onClose(); }}
+                  style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}
+                >
+                  {duplicating ? '...' : 'Duplizieren'}
+                </button>
+              )}
+            </>
           )}
+          {showUpgrade && <ProteinUpgradeModal meal={meal} onClose={() => setShowUpgrade(false)} />}
           {onEdit && <button className="btn btn-accent" onClick={onEdit} style={{ padding: '6px 12px', fontSize: '13px', lineHeight: '1.4' }}>Bearbeiten</button>}
           <button className="btn-ghost" onClick={handleClose} style={{ fontSize: '24px' }}>×</button>
         </div>
+        {shareState && shareState !== 'loading' && (
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                readOnly
+                value={shareState.url}
+                style={{ flex: 1, fontSize: '12px', padding: '4px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'monospace' }}
+                onClick={e => (e.target as HTMLInputElement).select()}
+              />
+              <button
+                className="btn btn-accent"
+                style={{ padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  navigator.clipboard.writeText(shareState.url);
+                  setCopyDone(true);
+                  setTimeout(() => setCopyDone(false), 2000);
+                }}
+              >
+                {copyDone ? 'Kopiert!' : 'Kopieren'}
+              </button>
+            </div>
+            <button
+              style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              onClick={async () => {
+                await api.delete(`/api/meals/${meal.id}/share`);
+                setShareState(null);
+              }}
+            >
+              Link widerrufen
+            </button>
+          </div>
+        )}
         <h2 style={{ margin: '0 0 16px 0', color: 'var(--text-h)', textAlign: 'center' }}>{meal.name}</h2>
 
         {meal.photoUrl && (
@@ -449,13 +644,22 @@ export function RecipeDetailModal({
               (skaliert von {meal.defaultServings})
             </span>
           )}
-          {(meal.prepTime || meal.totalTime) && (
+          {!!(meal.prepTime || meal.totalTime) && (
             <span style={{ marginLeft: '8px' }}>
               {' • '}⏱ {meal.prepTime && meal.totalTime
                 ? `Vorbereitung ${meal.prepTime} Min · Gesamt ${meal.totalTime} Min`
                 : meal.prepTime
                   ? `Vorbereitung ${meal.prepTime} Min`
                   : `${meal.totalTime} Min`}
+            </span>
+          )}
+          {!!meal.portionWeight && (
+            /* Gewicht für die GERADE ANGEZEIGTE Menge — wird das Rezept aus einem Plan-Eintrag
+               mit 0,6 Portionen geöffnet, stehen hier die 0,6 Portionen, passend zur
+               Zutatenliste darunter. Der Wert pro Einzelportion steht im Tooltip. */
+            <span style={{ marginLeft: '8px' }} title={portionWeightTitle(meal, displayServings)}>
+              {' • '}⚖️ {formatPortionWeight(meal, displayServings)}
+              {Math.abs(displayServings - 1) < 0.01 ? ' pro Portion' : ''}
             </span>
           )}
         </div>
@@ -489,22 +693,22 @@ export function RecipeDetailModal({
                 placeholder="Kommentar hinzufügen..."
               />
             </div>
-          ) : (
+          ) : meal.comment || !readOnly ? (
             <p
-              onClick={() => { setCommentText(meal.comment || ''); setEditingComment(true); }}
+              onClick={() => { if (readOnly) return; setCommentText(meal.comment || ''); setEditingComment(true); }}
               style={{
                 margin: 0,
                 fontSize: '14px',
                 whiteSpace: 'pre-wrap',
                 fontStyle: 'italic',
                 color: meal.comment ? 'var(--text)' : 'var(--color-muted)',
-                cursor: 'pointer',
+                cursor: readOnly ? 'default' : 'pointer',
               }}
-              title="Klicken zum Bearbeiten"
+              title={readOnly ? undefined : 'Klicken zum Bearbeiten'}
             >
-              {meal.comment || 'Kommentar hinzufügen...'}
+              {meal.comment || (!readOnly && 'Kommentar hinzufügen...')}
             </p>
-          )}
+          ) : null}
         </div>
 
         <div className="recipe-detail-grid" style={{ display: meal.recipeText ? 'grid' : 'block', gridTemplateColumns: meal.recipeText ? '1fr 2fr' : '1fr', gap: '20px' }}>
@@ -566,12 +770,15 @@ export function RecipeDetailModal({
 
         <NutritionTable
           meal={meal}
+          date={entryDate}
           onTagsUpdated={(tags) => {
             const { id: _, ...rest } = meal;
             updateMeal(meal.id, { ...rest, tags });
           }}
           onApplyRecommendation={(M) => {
-            const planPersons = activePlan?.defaultServings ?? defaultServings ?? baseServings;
+            const planPersons = entryDate
+              ? personsForDate(activePlan, entryDate, defaultServings)
+              : (activePlan?.defaultServings ?? defaultServings ?? baseServings);
             applyScale((M * planPersons) / meal.defaultServings);
           }}
         />
@@ -681,6 +888,8 @@ function buildExportData(meals: Meal[]): string {
       prepTime: m.prepTime,
       totalTime: m.totalTime,
       photoUrl: m.photoUrl ? `${API_URL}${m.photoUrl}` : undefined,
+      shoppingIngredients: m.shoppingIngredients,
+      nutritionPerServing: m.nutritionPerServing,
     })),
   };
   return JSON.stringify(exportObj, null, 2);
@@ -740,6 +949,7 @@ export function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => 
     { key: 'breakfast', label: 'Frühst.' },
     { key: 'lunch', label: 'Mittag' },
     { key: 'dinner', label: 'Abend' },
+    { key: 'snacks', label: 'Snacks' },
   ];
 
   const menuMealTypes: Array<{ key: string; label: string }> = [
@@ -757,7 +967,7 @@ export function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => 
   };
 
   const handleSlotClick = (date: string, mealType: string) => {
-    addMealToSlot(date, mealType as 'breakfast' | 'lunch' | 'dinner' | 'food' | 'drinks', meal.id);
+    addMealToSlot(date, mealType as MealType, meal.id);
     onClose();
   };
 
@@ -867,12 +1077,14 @@ export function SlotPickerModal({ meal, onClose }: { meal: Meal; onClose: () => 
 }
 
 export const RecipeManagement: React.FC = () => {
-  const { state, toggleMealStar, deleteMeal, updateMeal, importMeals, duplicateMeal } = useMealPlan();
+  const { state, toggleMealStar, deleteMeal, updateMeal, importMeals, duplicateMeal, defaultRecipeSort } = useMealPlan();
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [starFilter, setStarFilter] = useState<'all' | 'starred'>('all');
-  const [sortBy, setSortBy] = useState<SortBy>('newest');
+  // null = follow the user's default sort setting until a sort is picked here.
+  const [sortOverride, setSortBy] = useState<SortBy | null>(null);
+  const sortBy = sortOverride ?? defaultRecipeSort;
   const [maxPrepTime, setMaxPrepTime] = useState<number | ''>('');
   const [maxTotalTime, setMaxTotalTime] = useState<number | ''>('');
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
@@ -882,7 +1094,7 @@ export const RecipeManagement: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
 
   const activeFilterCount = (categoryFilter ? 1 : 0) + tagFilter.length
-    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== 'newest' ? 1 : 0)
+    + (maxPrepTime ? 1 : 0) + (maxTotalTime ? 1 : 0) + (sortBy !== defaultRecipeSort ? 1 : 0)
     + (starFilter !== 'all' ? 1 : 0) + (ratingFilter !== '' ? 1 : 0) + (minProtein !== '' ? 1 : 0);
 
   const [viewingMeal, setViewingMeal] = useState<Meal | null>(null);
@@ -1030,14 +1242,7 @@ export const RecipeManagement: React.FC = () => {
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortBy)}
           >
-            <option value="name">Name A-Z</option>
-            <option value="rating">Bewertung</option>
-            <option value="newest">Neueste</option>
-            <option value="score">Nährwert-Score ↓</option>
-            <option value="kcal">Kalorien ↑</option>
-            <option value="protein">Protein ↓</option>
-            <option value="fiber">Ballaststoffe ↓</option>
-            <option value="sugar">Zug. Zucker ↑</option>
+            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <button
             className="btn-ghost"

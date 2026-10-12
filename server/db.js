@@ -410,4 +410,186 @@ if (version < 20) {
   console.log('✓ Migration v20 complete');
 }
 
+if (version < 21) {
+  console.log('Running migration v21: meal share tokens...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meal_shares (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_meal_shares_token ON meal_shares(token);
+  `);
+  db.pragma('user_version = 21');
+  console.log('✓ Migration v21 complete');
+}
+
+if (version < 22) {
+  console.log('Running migration v22: quick meals (meals without recipe)...');
+  // Quick meals (canteen etc.) live in the meals table so plan entries, scores and the
+  // nutrition log work unchanged; the flag hides them from recipe lists.
+  const mealCols = db.prepare("PRAGMA table_info(meals)").all().map(c => c.name);
+  if (!mealCols.includes('is_quick')) {
+    db.exec('ALTER TABLE meals ADD COLUMN is_quick INTEGER NOT NULL DEFAULT 0');
+  }
+  db.pragma('user_version = 22');
+  console.log('✓ Migration v22 complete');
+}
+
+if (version < 23) {
+  console.log('Running migration v23: default recipe sort order per user...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('default_recipe_sort')) {
+    db.exec('ALTER TABLE users ADD COLUMN default_recipe_sort TEXT');
+  }
+  db.pragma('user_version = 23');
+  console.log('✓ Migration v23 complete');
+}
+
+if (version < 24) {
+  console.log('Running migration v24: allow snacks in disabled slots + slot notes...');
+  // SQLite can't alter a CHECK constraint — rebuild both tables with the per-day snack slot allowed.
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE disabled_slots_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks')),
+        UNIQUE(plan_id, date, meal_type)
+      );
+      INSERT INTO disabled_slots_new (id, plan_id, date, meal_type)
+        SELECT id, plan_id, date, meal_type FROM disabled_slots;
+      DROP TABLE disabled_slots;
+      ALTER TABLE disabled_slots_new RENAME TO disabled_slots;
+      CREATE INDEX IF NOT EXISTS idx_disabled_slots_plan ON disabled_slots(plan_id);
+
+      CREATE TABLE plan_slot_notes_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snacks')),
+        note TEXT NOT NULL,
+        UNIQUE(plan_id, date, meal_type)
+      );
+      INSERT INTO plan_slot_notes_new (id, plan_id, date, meal_type, note)
+        SELECT id, plan_id, date, meal_type, note FROM plan_slot_notes;
+      DROP TABLE plan_slot_notes;
+      ALTER TABLE plan_slot_notes_new RENAME TO plan_slot_notes;
+      CREATE INDEX IF NOT EXISTS idx_slot_notes_plan ON plan_slot_notes(plan_id);
+    `);
+  })();
+  db.pragma('user_version = 24');
+  console.log('✓ Migration v24 complete');
+}
+
+if (version < 25) {
+  console.log('Running migration v25: estimated portion weight...');
+  const cols = db.prepare("PRAGMA table_info(meals)").all().map(c => c.name);
+  if (!cols.includes('portion_weight_g')) {
+    db.exec('ALTER TABLE meals ADD COLUMN portion_weight_g INTEGER');
+  }
+  db.pragma('user_version = 25');
+  console.log('✓ Migration v25 complete');
+}
+
+if (version < 26) {
+  console.log('Running migration v26: per-day person count...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plan_day_persons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      persons INTEGER NOT NULL,
+      UNIQUE(plan_id, date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_day_persons_plan ON plan_day_persons(plan_id);
+  `);
+  db.pragma('user_version = 26');
+  console.log('✓ Migration v26 complete');
+}
+
+if (version < 27) {
+  console.log('Running migration v27: Apple Health active energy...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('health_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN health_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!userCols.includes('health_active_factor')) {
+    db.exec('ALTER TABLE users ADD COLUMN health_active_factor REAL NOT NULL DEFAULT 0.8');
+  }
+  if (!userCols.includes('health_token_hash')) {
+    db.exec('ALTER TABLE users ADD COLUMN health_token_hash TEXT');
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_health_token ON users(health_token_hash);
+    CREATE TABLE IF NOT EXISTS activity_days (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      active_kcal REAL NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, date)
+    );
+  `);
+  db.pragma('user_version = 27');
+  console.log('✓ Migration v27 complete');
+}
+
+if (version < 28) {
+  console.log('Running migration v28: coffee (drinks, personal entries, daily habit)...');
+  const mealCols = db.prepare("PRAGMA table_info(meals)").all().map(c => c.name);
+  if (!mealCols.includes('is_drink')) {
+    db.exec('ALTER TABLE meals ADD COLUMN is_drink INTEGER NOT NULL DEFAULT 0');
+  }
+  const entryCols = db.prepare("PRAGMA table_info(meal_plan_entries)").all().map(c => c.name);
+  // Personal entries (coffee) belong to one user of a shared plan and count fully for them,
+  // not split across the day's persons.
+  if (!entryCols.includes('personal_user_id')) {
+    db.exec('ALTER TABLE meal_plan_entries ADD COLUMN personal_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+  }
+  // Created by the daily habit and not touched since — replaced when the habit changes.
+  if (!entryCols.includes('auto_habit')) {
+    db.exec('ALTER TABLE meal_plan_entries ADD COLUMN auto_habit INTEGER NOT NULL DEFAULT 0');
+  }
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('coffee_habit')) {
+    db.exec('ALTER TABLE users ADD COLUMN coffee_habit TEXT');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS coffee_habit_fill (
+      plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      filled_through TEXT NOT NULL,
+      PRIMARY KEY (plan_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_entries_personal ON meal_plan_entries(personal_user_id);
+  `);
+  db.pragma('user_version = 28');
+  console.log('✓ Migration v28 complete');
+}
+
+if (version < 29) {
+  console.log('Running migration v29: flexible sport mode (logged trainings)...');
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes('flexible_sport_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN flexible_sport_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS training_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('cardio', 'strength', 'sport', 'mobility')),
+      intensity TEXT NOT NULL CHECK(intensity IN ('light', 'moderate', 'intense')),
+      minutes INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_logs_user_date ON training_logs(user_id, date);
+  `);
+  db.pragma('user_version = 29');
+  console.log('✓ Migration v29 complete');
+}
+
 export default db;

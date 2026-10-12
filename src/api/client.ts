@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 class ApiError extends Error {
   status: number;
@@ -47,9 +47,9 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
-  upload: async <T>(path: string, formData: FormData): Promise<T> => {
+  upload: async <T>(path: string, formData: FormData, method: 'POST' | 'PUT' = 'POST'): Promise<T> => {
     const res = await fetch(`${API_URL}${path}`, {
-      method: 'POST',
+      method,
       credentials: 'include',
       body: formData,
       // No Content-Type header — let browser set multipart boundary

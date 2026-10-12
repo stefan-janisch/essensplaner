@@ -1,7 +1,7 @@
 import type { Meal } from '../types/index.js';
 import { parseTag } from '../constants/tags';
 import { getCategoryLabel } from '../constants/categories';
-import { computeNutritionScore } from './nutritionScore';
+import { computeNutritionScore, computeProteinDensity } from './nutritionScore';
 
 export type RatingComparator = 'gte' | 'eq' | 'lte';
 
@@ -17,7 +17,22 @@ export interface MealFilterOptions {
   minProtein?: number | '';
 }
 
-export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'fiber' | 'sugar' | 'score';
+export type SortBy = 'name' | 'rating' | 'newest' | 'kcal' | 'protein' | 'proteinDensity' | 'fiber' | 'sugar' | 'score';
+
+/** Sort choices for recipe lists and the "Standard-Sortierung" setting (server validates the same keys). */
+export const SORT_OPTIONS: { value: SortBy; label: string }[] = [
+  { value: 'score', label: 'Nährwert-Score ↓' },
+  { value: 'name', label: 'Name A-Z' },
+  { value: 'rating', label: 'Bewertung' },
+  { value: 'newest', label: 'Neueste' },
+  { value: 'kcal', label: 'Kalorien ↑' },
+  { value: 'protein', label: 'Protein ↓' },
+  { value: 'proteinDensity', label: 'Proteindichte ↓' },
+  { value: 'fiber', label: 'Ballaststoffe ↓' },
+  { value: 'sugar', label: 'Zug. Zucker ↑' },
+];
+
+export const DEFAULT_SORT_BY: SortBy = 'score';
 
 export function filterMeals(meals: Meal[], options: MealFilterOptions): Meal[] {
   const { starFilter, categoryFilter, tagFilter, maxPrepTime, maxTotalTime, searchQuery } = options;
@@ -76,6 +91,7 @@ export function sortMeals(meals: Meal[], sortBy: SortBy, options?: { pinStarred?
       case 'newest': return (b.id > a.id ? 1 : -1);
       case 'kcal': return (a.nutritionPerServing?.kcal ?? Infinity) - (b.nutritionPerServing?.kcal ?? Infinity);
       case 'protein': return (b.nutritionPerServing?.protein ?? 0) - (a.nutritionPerServing?.protein ?? 0);
+      case 'proteinDensity': return (computeProteinDensity(b.nutritionPerServing) ?? -1) - (computeProteinDensity(a.nutritionPerServing) ?? -1);
       case 'fiber': return (b.nutritionPerServing?.fiber ?? 0) - (a.nutritionPerServing?.fiber ?? 0);
       case 'sugar': return (a.nutritionPerServing?.sugar ?? Infinity) - (b.nutritionPerServing?.sugar ?? Infinity);
       case 'score': return (computeNutritionScore(b.nutritionPerServing) ?? -1) - (computeNutritionScore(a.nutritionPerServing) ?? -1);

@@ -42,3 +42,39 @@ export function getMicroReference(profile: NutritionProfile | null): Record<Micr
   }
   return out;
 }
+
+/** Keys older profiles stored in supplementedMicros (the calculator's former micro targets). */
+const LEGACY_SUPPLEMENT_KEYS: Record<string, MicroKeyName> = {
+  magnesiumMg: 'magnesium_mg',
+  zincMg: 'zinc_mg',
+  ironMg: 'iron_mg',
+  vitaminDIu: 'vitaminD_ug',
+  omega3G: 'omega3_g',
+  calciumMg: 'calcium_mg',
+};
+const MICRO_KEYS = new Set<string>(MICRO_REFERENCES.map(m => m.key));
+
+/** profile.supplementedMicros as micro fields: legacy keys mapped, unknown ones dropped, no duplicates. */
+export function normalizeSupplementedMicros(keys: readonly string[] | undefined): MicroKeyName[] {
+  const out = new Set<MicroKeyName>();
+  for (const k of keys ?? []) {
+    const key = LEGACY_SUPPLEMENT_KEYS[k] ?? k;
+    if (MICRO_KEYS.has(key)) out.add(key as MicroKeyName);
+  }
+  return [...out];
+}
+
+/** Micros the user marked as covered by supplements (profile.supplementedMicros). */
+export function getSupplementedMicros(profile: NutritionProfile | null): Set<MicroKeyName> {
+  return new Set(normalizeSupplementedMicros(profile?.supplementedMicros));
+}
+
+/**
+ * Micro references for the day score: like getMicroReference, but without the micros the user
+ * covers with supplements — those don't need to come from food.
+ */
+export function getScoredMicroReference(profile: NutritionProfile | null): Partial<Record<MicroKeyName, number>> {
+  const refs: Partial<Record<MicroKeyName, number>> = getMicroReference(profile);
+  for (const k of getSupplementedMicros(profile)) delete refs[k];
+  return refs;
+}

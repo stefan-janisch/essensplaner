@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MealPlanProvider, useMealPlan } from './context/MealPlanContext';
 import { AuthForm } from './components/AuthForm';
+import { SharedMealView } from './components/SharedMealView';
 import { MigrationPrompt } from './components/MigrationPrompt';
 import { MealPlanTable } from './components/MealPlanTable';
 import { MenuPlanTable } from './components/MenuPlanTable';
@@ -15,6 +16,7 @@ import { MonthlyNutritionReport } from './components/MonthlyNutritionReport';
 import { useIsMobile } from './hooks/useIsMobile';
 import type { PlanType } from './types/index.js';
 import './App.css';
+import { UpdateBanner } from './components/UpdateBanner';
 
 type AppView = 'overview' | 'planner' | 'recipes' | 'cook' | 'menuplan' | 'admin' | 'settings' | 'bericht';
 
@@ -183,6 +185,34 @@ function useShareJoin(onJoined: (planId: number) => void) {
   return { status, errorMsg };
 }
 
+function useImportMeal() {
+  const { importSharedMeal } = useMealPlan();
+  const [importResult, setImportResult] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const handled = useRef(false);
+
+  const [params] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const token = p.get('import-meal');
+    if (token) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('import-meal');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+    return { token };
+  });
+
+  useEffect(() => {
+    if (handled.current || !params.token) return;
+    handled.current = true;
+    setImportResult('loading');
+    importSharedMeal(params.token)
+      .then(() => setImportResult('done'))
+      .catch(() => setImportResult('error'));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { importResult };
+}
+
 function parseHash(hash: string): { view: AppView; planId?: number; reportMonth?: string } {
   if (hash === '#rezepte') return { view: 'recipes' };
   if (hash === '#kochen') return { view: 'cook' };
@@ -247,6 +277,8 @@ function AuthenticatedAppInner() {
     setView(joined?.planType === 'menu' ? 'menuplan' : 'planner', planId);
   });
 
+  const { importResult } = useImportMeal();
+
   if (status === 'joining') {
     return (
       <>
@@ -264,6 +296,16 @@ function AuthenticatedAppInner() {
       {status === 'error' && (
         <div style={{ padding: '24px 32px', textAlign: 'center' }}>
           <div className="auth-error" style={{ display: 'inline-block' }}>{errorMsg}</div>
+        </div>
+      )}
+      {importResult === 'done' && (
+        <div style={{ padding: '12px 32px', background: 'var(--accent)', color: '#fff', textAlign: 'center', fontSize: '14px' }}>
+          Rezept wurde importiert und ist jetzt in deinen Rezepten verfügbar.
+        </div>
+      )}
+      {importResult === 'error' && (
+        <div style={{ padding: '12px 32px', textAlign: 'center' }}>
+          <div className="auth-error" style={{ display: 'inline-block' }}>Rezept konnte nicht importiert werden.</div>
         </div>
       )}
       {view === 'overview' ? (
@@ -303,6 +345,14 @@ function AuthenticatedApp() {
 
 function AppGate() {
   const { isLoading, isAuthenticated } = useAuth();
+  const sharedMealToken = useMemo(
+    () => new URLSearchParams(window.location.search).get('shared-meal'),
+    []
+  );
+  const hasPendingImport = useMemo(
+    () => !!new URLSearchParams(window.location.search).get('import-meal'),
+    []
+  );
 
   if (isLoading) {
     return (
@@ -312,8 +362,34 @@ function AppGate() {
     );
   }
 
+  if (sharedMealToken) {
+    return (
+      <MealPlanProvider>
+      <SharedMealView
+        token={sharedMealToken}
+        isAuthenticated={isAuthenticated}
+        onImport={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('shared-meal');
+          window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+          window.location.reload();
+        }}
+      />
+      </MealPlanProvider>
+    );
+  }
+
   if (!isAuthenticated) {
-    return <AuthForm />;
+    return (
+      <>
+        {hasPendingImport && (
+          <div style={{ background: 'var(--accent)', color: '#fff', textAlign: 'center', padding: '12px', fontSize: '14px' }}>
+            Melde dich an oder registriere dich, um das geteilte Rezept in deinen Essensplaner zu importieren.
+          </div>
+        )}
+        <AuthForm />
+      </>
+    );
   }
 
   return <AuthenticatedApp />;
@@ -323,6 +399,7 @@ function App() {
   return (
     <AuthProvider>
       <AppGate />
+      <UpdateBanner />
     </AuthProvider>
   );
 }

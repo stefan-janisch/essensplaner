@@ -1,7 +1,14 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useMealPlan } from '../context/MealPlanContext';
-import { calculateNutrition, calculateDayAdjustment, toNutritionTargets, countSessionsFromWeek } from '../utils/nutritionCalculator';
-import type { NutritionProfile, DayType, WeekDayTypes, CalculatedNutrition, MicroKey } from '../types/index.js';
+import { calculateNutrition, calculateDayAdjustment, goalAdjustment, countSessionsFromWeek, getDayEnergy, getDayTargets, isHealthSource } from '../utils/nutritionCalculator';
+import type { SportModel } from '../utils/sportModel';
+import { nextDateForWeekday } from '../utils/activityModel';
+import type { ActivityModel } from '../utils/activityModel';
+import { AppleHealthSettings } from './AppleHealthSettings';
+import { EnergyOverview } from './EnergyOverview';
+import type { NutritionProfile, DayType, WeekDayTypes, CalculatedNutrition } from '../types/index.js';
+import { MICRO_REFERENCES, getMicroReference, normalizeSupplementedMicros } from '../utils/microReference';
+import type { MicroKeyName } from '../utils/microReference';
 import { DEFAULT_NUTRITION_PROFILE } from '../types/index.js';
 
 const ACTIVITY_LABELS = {
@@ -16,6 +23,29 @@ const GOAL_LABELS = { bulk: 'Aufbau', maintain: 'Erhaltung', cut: 'Abnehmen' } a
 const DAY_LABELS: Record<string, string> = { mon: 'Mo', tue: 'Di', wed: 'Mi', thu: 'Do', fri: 'Fr', sat: 'Sa', sun: 'So' };
 const DAY_TYPE_LABELS: Record<DayType, string> = { strength: 'Kraft', cardio: 'Ausdauer', rest: 'Ruhe' };
 const DAY_TYPE_COLORS: Record<DayType, string> = { strength: '#4dabf7', cardio: '#51cf66', rest: '#dee2e6' };
+const WEEK_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+// ~7700 kcal per kg of body fat; average month = 30.44 days.
+const monthlyWeightChangeKg = (dailyKcal: number) => Math.abs(dailyKcal) * 30.44 / 7700;
+
+/**
+ * The average of the coming seven day targets — exactly what the week plan shows per day — so the
+ * summary matches it (weekday factors, Apple Health). `fromHealth`: at least one day is measured.
+ */
+function weekAverage(profile: NutritionProfile, today: string, activity: ActivityModel | null, sport: SportModel | null) {
+  const dates = WEEK_DAYS.map(day => nextDateForWeekday(today, day));
+  const energies = dates.map(date => getDayEnergy(profile, date, activity, sport));
+  const targets = dates.map(date => getDayTargets(profile, date, activity, sport));
+  const avg = (values: number[]) => Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  return {
+    tdee: avg(energies.map(e => e.tdee)),
+    targetKcal: avg(targets.map(t => t.kcal)),
+    proteinG: avg(targets.map(t => t.protein)),
+    carbsG: avg(targets.map(t => t.carbs)),
+    fatG: avg(targets.map(t => t.fat)),
+    fromHealth: energies.some(isHealthSource),
+  };
+}
 
 function MacroDonut({ protein, carbs, fat }: { protein: number; carbs: number; fat: number }) {
   const total = protein + carbs + fat;
@@ -40,23 +70,30 @@ function MacroDonut({ protein, carbs, fat }: { protein: number; carbs: number; f
   );
 }
 
-const MICRO_LABELS: { key: MicroKey; label: string; unit: string }[] = [
-  { key: 'magnesiumMg', label: 'Magnesium', unit: 'mg' },
-  { key: 'zincMg', label: 'Zink', unit: 'mg' },
-  { key: 'ironMg', label: 'Eisen', unit: 'mg' },
-  { key: 'vitaminDIu', label: 'Vitamin D', unit: 'IU' },
-  { key: 'omega3G', label: 'Omega-3', unit: 'g' },
-  { key: 'calciumMg', label: 'Calcium', unit: 'mg' },
-];
-
-function ResultsPanel({ calc, profile, onApply, onToggleSupplement }: { calc: CalculatedNutrition; profile: NutritionProfile; onApply: () => void; onToggleSupplement: (key: MicroKey) => void }) {
+function ResultsPanel({ calc: base, profile, today, activity, sport, onToggleSupplement }: {
+  calc: CalculatedNutrition;
+  profile: NutritionProfile;
+  today: string;
+  activity: ActivityModel | null;
+  sport: SportModel | null;
+  onToggleSupplement: (key: MicroKeyName) => void;
+}) {
   const formula = profile.bodyFatPercent ? 'Katch-McArdle' : 'Harris-Benedict';
+  const week = weekAverage(profile, today, activity, sport);
+  const calc = { ...base, ...week, proteinKcal: week.proteinG * 4, carbsKcal: week.carbsG * 4, fatKcal: week.fatG * 9 };
+  const weekLabel = <><br />Ø 7 Tage</>;
+  const microRefs = getMicroReference(profile);
+  const supplementedSet = new Set(normalizeSupplementedMicros(profile.supplementedMicros));
   return (
     <div className="calc-results">
       <div className="calc-results-header">
-        <h4>Ergebnis</h4>
+        <h4><span className="calc-step">5</span>Ergebnis</h4>
         <span className="calc-formula-badge">{formula}</span>
       </div>
+      <p className="calc-hint" style={{ marginTop: '-8px' }}>
+        Durchschnitt der nächsten 7 Tage{week.fromHealth && ' (mit Apple Health ❤)'} – einzelne Tage weichen je nach
+        Training und Messung ab, siehe Tagesziel oben.
+      </p>
 
       <div className="calc-energy-cards">
         <div className="calc-card">
@@ -65,11 +102,11 @@ function ResultsPanel({ calc, profile, onApply, onToggleSupplement }: { calc: Ca
         </div>
         <div className="calc-card">
           <div className="calc-card-value">{calc.tdee}</div>
-          <div className="calc-card-label">Gesamtumsatz (TDEE)</div>
+          <div className="calc-card-label">Gesamtumsatz (TDEE){weekLabel}</div>
         </div>
         <div className="calc-card calc-card-accent">
           <div className="calc-card-value">{calc.targetKcal}</div>
-          <div className="calc-card-label">Ziel-Kalorien</div>
+          <div className="calc-card-label">Ziel-Kalorien{weekLabel}</div>
         </div>
       </div>
 
@@ -110,41 +147,77 @@ function ResultsPanel({ calc, profile, onApply, onToggleSupplement }: { calc: Ca
         <div className="calc-extra-row">
           <span>Wasser</span><strong>{calc.waterL} L/Tag</strong>
         </div>
-        <h5>Mikronährstoffe <span style={{ fontWeight: 400, fontSize: '11px' }}>(supplementierte abhaken)</span></h5>
+        <h5>Mikronährstoffe <span style={{ fontWeight: 400, fontSize: '11px' }}>(Tagesreferenz – supplementierte abhaken)</span></h5>
         <div className="calc-micro-grid">
-          {MICRO_LABELS.map(({ key, label, unit }) => {
-            const supplemented = profile.supplementedMicros?.includes(key) ?? false;
+          {MICRO_REFERENCES.map(({ key, label, unit }) => {
+            const supplemented = supplementedSet.has(key);
             return (
               <label key={key} className="calc-micro-item" style={{ opacity: supplemented ? 0.4 : 1 }}>
                 <input type="checkbox" checked={supplemented} onChange={() => onToggleSupplement(key)} />
-                <span>{label}: <strong>{supplemented ? '–' : `${calc.micros[key]} ${unit}`}</strong></span>
+                <span>{label}: <strong>{supplemented ? '–' : `${microRefs[key].toLocaleString('de-DE')} ${unit}`}</strong></span>
                 {supplemented && <span className="calc-supplement-badge">Supplement</span>}
               </label>
             );
           })}
         </div>
+        <p className="calc-micro-note">
+          Dieselben Referenzwerte nutzen Tages-Score und Monatsbericht. Supplementierte Nährstoffe zählen dort nicht
+          mit und werden nie als Mangel gemeldet.
+        </p>
       </div>
-
-      <button className="btn btn-primary" onClick={onApply} style={{ marginTop: '16px', width: '100%' }}>
-        Werte als Nährwert-Ziele übernehmen
-      </button>
     </div>
   );
 }
 
-function WeekEditor({ profile, calc, onChange }: { profile: NutritionProfile; calc: CalculatedNutrition; onChange: (w: WeekDayTypes) => void }) {
-  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+function WeekEditor({ profile, calc, activity, onChange }: {
+  profile: NutritionProfile;
+  calc: CalculatedNutrition;
+  activity: ActivityModel | null;
+  onChange: (w: WeekDayTypes) => void;
+}) {
+  const days = WEEK_DAYS;
   const types: DayType[] = ['strength', 'cardio', 'rest'];
+
+  // Per weekday: the Apple Health rolling average where there is enough data, else the day-type estimate.
+  const dayValues = (day: typeof days[number]) => {
+    const dt = profile.weekDayTypes[day];
+    const adj = calculateDayAdjustment(calc, dt);
+    if (!activity) return { adj, energy: null };
+    const date = nextDateForWeekday(activity.today, day);
+    const energy = getDayEnergy(profile, date, activity);
+    if (energy.source === 'profile') return { adj, energy: null };
+    const t = getDayTargets(profile, date, activity);
+    return { adj: { targetKcal: t.kcal, proteinG: t.protein, carbsG: t.carbs, fatG: t.fat, hint: adj.hint }, energy };
+  };
 
   return (
     <div className="week-editor">
-      <h4>Wochenplan</h4>
+      <h5 className="calc-subheading">Wochenplan</h5>
+      {activity && (() => {
+        const estimated = days.filter(day => !dayValues(day).energy).map(day => DAY_LABELS[day]);
+        const measured = days.length - estimated.length;
+        return (
+          <div className="health-callout">
+            <div className="health-callout-title">❤ Kalorienbedarf aus Apple Health</div>
+            {measured > 0 ? (
+              <>
+                <strong>{measured} von 7 Wochentagen</strong> nutzen den gemessenen Umsatz – Ø der letzten 6 Wochen,
+                {' '}{Math.round(activity.factor * 100)} % der aktiven kcal angerechnet. Der Tagestyp wirkt dort nur noch
+                aufs Protein (+5 % an Krafttagen); Kohlenhydrate füllen den Rest.
+                {estimated.length > 0 && <> Noch Profil-Schätzung (zu wenig Messwerte): {estimated.join(', ')}.</>}
+              </>
+            ) : (
+              <>Noch zu wenig Messwerte – alle Tage nutzen vorerst die Profil-Schätzung. Ab 2 Messwerten je Wochentag übernimmt Apple Health.</>
+            )}
+          </div>
+        );
+      })()}
       <div className="week-grid">
         {days.map(day => {
           const dt = profile.weekDayTypes[day];
-          const adj = calculateDayAdjustment(calc, dt);
+          const { adj, energy } = dayValues(day);
           return (
-            <div key={day} className="week-day-col">
+            <div key={day} className={`week-day-col${energy ? ' week-day-health' : ''}`}>
               <div className="week-day-label">{DAY_LABELS[day]}</div>
               <div className="week-day-toggles">
                 {types.map(t => (
@@ -160,7 +233,8 @@ function WeekEditor({ profile, calc, onChange }: { profile: NutritionProfile; ca
               </div>
               <div className="week-day-values">
                 <span>{adj.targetKcal} kcal</span>
-                <span>{adj.proteinG}g P / {adj.carbsG}g K / {adj.fatG}g F</span>
+                <span>{adj.proteinG}g P / {adj.carbsG}g KH / {adj.fatG}g F</span>
+                {energy && <span className="week-day-health-line" title="Ø aktive kcal aus Apple Health (vor Anrechnung)">❤ Ø {energy.activeKcal} aktiv ({energy.samples})</span>}
               </div>
               {adj.hint && <div className="week-day-hint">{adj.hint}</div>}
             </div>
@@ -172,11 +246,11 @@ function WeekEditor({ profile, calc, onChange }: { profile: NutritionProfile; ca
 }
 
 export function NutritionCalculator() {
-  const { nutritionProfile, setNutritionProfile, setNutritionTargets } = useMealPlan();
+  const { nutritionProfile, setNutritionProfile, activity, today, sport, flexibleSportEnabled, setFlexibleSportEnabled } = useMealPlan();
   const [profile, setProfile] = useState<NutritionProfile>(nutritionProfile ?? { ...DEFAULT_NUTRITION_PROFILE });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const calc = useMemo(() => calculateNutrition(profile), [profile]);
+  const calc = useMemo(() => calculateNutrition(profile, sport), [profile, sport]);
 
   const update = <K extends keyof NutritionProfile>(key: K, value: NutritionProfile[K]) => {
     setProfile(prev => ({ ...prev, [key]: value }));
@@ -191,16 +265,17 @@ export function NutritionCalculator() {
     return () => clearTimeout(saveTimer.current);
   }, [profile, setNutritionProfile]);
 
-  const handleApply = async () => {
-    const targets = toNutritionTargets(calc);
-    await setNutritionTargets(targets);
+  const setTrainingMode = (flexible: boolean) => {
+    if (flexible !== flexibleSportEnabled) setFlexibleSportEnabled(flexible);
   };
 
   return (
     <div className="nutrition-calculator">
-      {/* Personal Profile */}
+      <EnergyOverview profile={profile} today={today} activity={activity} sport={sport} />
+
+      {/* ① Body data */}
       <div className="calc-section">
-        <h4>Persönliches Profil</h4>
+        <h4><span className="calc-step">1</span>Körperdaten</h4>
         <div className="calc-form-grid">
           <div className="settings-field">
             <label>Alter</label>
@@ -232,48 +307,80 @@ export function NutritionCalculator() {
               value={profile.bodyFatPercent ?? ''} placeholder="–"
               onChange={e => update('bodyFatPercent', e.target.value ? parseFloat(e.target.value) : undefined)} style={{ width: '80px' }} />
           </div>
-          <div className="settings-field">
-            <label>Alltagsaktivität</label>
-            <select className="input" value={profile.activityLevel}
-              onChange={e => update('activityLevel', e.target.value as NutritionProfile['activityLevel'])}>
-              {Object.entries(ACTIVITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-          </div>
         </div>
+        <p className="calc-hint">
+          Grundumsatz {calc.bmr.toLocaleString('de-DE')} kcal nach {profile.bodyFatPercent ? 'Katch-McArdle (mit Körperfett genauer)' : 'Harris-Benedict – mit Körperfett-Angabe wird es genauer (Katch-McArdle)'}.
+        </p>
       </div>
 
-      {/* Training — session counts derived from week plan below */}
+      {/* ② Everyday activity + how training is counted */}
       <div className="calc-section">
-        <h4>Training</h4>
-        {(() => {
-          const sessions = countSessionsFromWeek(profile.weekDayTypes);
-          return (
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
-              {sessions.strength}x Kraft, {sessions.cardio}x Ausdauer pro Woche (aus Wochenplan unten)
-            </p>
-          );
-        })()}
-        <div className="calc-form-grid">
-          <div className="settings-field">
-            <label>Intensität Kraft</label>
-            <select className="input" value={profile.strengthIntensity}
-              onChange={e => update('strengthIntensity', e.target.value as NutritionProfile['strengthIntensity'])}>
-              {Object.entries(INTENSITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-          </div>
-          <div className="settings-field">
-            <label>Intensität Ausdauer</label>
-            <select className="input" value={profile.cardioIntensity}
-              onChange={e => update('cardioIntensity', e.target.value as NutritionProfile['cardioIntensity'])}>
-              {Object.entries(INTENSITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-          </div>
+        <h4><span className="calc-step">2</span>Alltag & Training</h4>
+        <div className="settings-field">
+          <label>Alltagsaktivität</label>
+          <select className="input" value={profile.activityLevel}
+            onChange={e => update('activityLevel', e.target.value as NutritionProfile['activityLevel'])}>
+            {Object.entries(ACTIVITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
         </div>
+
+        <div className="mode-switch" role="radiogroup" aria-label="Wie wird Training gezählt?">
+          <button type="button" role="radio" aria-checked={!flexibleSportEnabled}
+            className={!flexibleSportEnabled ? 'is-active' : ''} onClick={() => setTrainingMode(false)}>
+            <strong>📅 Fester Wochenplan</strong>
+            <span>Trainingstage pro Wochentag festlegen</span>
+          </button>
+          <button type="button" role="radio" aria-checked={flexibleSportEnabled}
+            className={flexibleSportEnabled ? 'is-active' : ''} onClick={() => setTrainingMode(true)}>
+            <strong>🏃 Flexibel im Plan</strong>
+            <span>Trainings am jeweiligen Tag eintragen</span>
+          </button>
+        </div>
+
+        {flexibleSportEnabled ? (
+          <p className="calc-hint">
+            Trag Trainings im Wochenplaner über 🏃 neben dem Datum ein (Art, Intensität, Dauer). Sie zählen genau an
+            diesem Tag. Wähle bei der Alltagsaktivität deshalb nur deine Bewegung <strong>ohne</strong> Sport, sonst
+            zählt er doppelt.
+          </p>
+        ) : (
+          <>
+            {(() => {
+              const sessions = countSessionsFromWeek(profile.weekDayTypes);
+              return (
+                <p className="calc-hint">
+                  {sessions.strength}× Kraft, {sessions.cardio}× Ausdauer pro Woche laut Wochenplan. Die Trainings werden
+                  auf alle Tage verteilt, Ruhetage bekommen etwas weniger.
+                </p>
+              );
+            })()}
+            <div className="calc-form-grid">
+              <div className="settings-field">
+                <label>Intensität Kraft</label>
+                <select className="input" value={profile.strengthIntensity}
+                  onChange={e => update('strengthIntensity', e.target.value as NutritionProfile['strengthIntensity'])}>
+                  {Object.entries(INTENSITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div className="settings-field">
+                <label>Intensität Ausdauer</label>
+                <select className="input" value={profile.cardioIntensity}
+                  onChange={e => update('cardioIntensity', e.target.value as NutritionProfile['cardioIntensity'])}>
+                  {Object.entries(INTENSITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+            </div>
+            <WeekEditor profile={profile} calc={calc} activity={activity} onChange={w => update('weekDayTypes', w)} />
+          </>
+        )}
       </div>
 
-      {/* Goal */}
+      {/* ③ Apple Health */}
+      <AppleHealthSettings profile={profile} />
+
+      {/* ④ Goal */}
       <div className="calc-section">
-        <h4>Zielsetzung</h4>
+        <h4><span className="calc-step">4</span>Ziel</h4>
         <div className="goal-toggles" style={{ justifyContent: 'center' }}>
           {(Object.entries(GOAL_LABELS) as [NutritionProfile['goal'], string][]).map(([k, v]) => (
             <button key={k} className={`pill ${profile.goal === k ? 'pill-active' : ''}`}
@@ -282,7 +389,10 @@ export function NutritionCalculator() {
         </div>
         {profile.goal !== 'maintain' && (
           <div className="settings-field" style={{ marginTop: '12px' }}>
-            <label>Aggressivität ({profile.goal === 'bulk' ? '+' : '-'}{Math.round(300 + (profile.aggressiveness / 100) * 200)} kcal)</label>
+            <label>
+              Aggressivität ({profile.goal === 'bulk' ? '+' : '−'}{Math.round(Math.abs(goalAdjustment(profile)))} kcal/Tag
+              {' ≈ '}{profile.goal === 'bulk' ? '+' : '−'}{monthlyWeightChangeKg(goalAdjustment(profile)).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg/Monat)
+            </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Konservativ</span>
               <input type="range" min="0" max="100" value={profile.aggressiveness} style={{ flex: 1 }}
@@ -293,13 +403,11 @@ export function NutritionCalculator() {
         )}
       </div>
 
-      {/* Week Editor — under Training */}
-      <WeekEditor profile={profile} calc={calc} onChange={w => update('weekDayTypes', w)} />
-
-      {/* Results */}
-      <ResultsPanel calc={calc} profile={profile} onApply={handleApply}
+      {/* ⑤ Results */}
+      <ResultsPanel calc={calc} profile={profile} today={today} activity={activity} sport={sport}
         onToggleSupplement={(key) => {
-          const current = profile.supplementedMicros ?? [];
+          // Normalizing also migrates keys from older profiles (e.g. 'vitaminDIu') on the next save.
+          const current = normalizeSupplementedMicros(profile.supplementedMicros);
           const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key];
           update('supplementedMicros', next);
         }}

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import multer from 'multer';
 import { dirname, extname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -7,6 +8,8 @@ import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { rowToMeal } from '../utils/transformers.js';
 import { validateExternalUrl, isValidFilename } from '../utils/security.js';
+import { parseNutrition } from '../nutritionMicros.js';
+import { parseSuppliedNutrition, withHighProteinTag } from '../nutritionEstimate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -134,11 +137,13 @@ router.put('/:id', (req, res) => {
 
     const { name, ingredients, shoppingIngredients, defaultServings, starred, rating, category, tags, recipeUrl, comment, recipeText, prepTime, totalTime } = req.body;
 
-    // Invalidate nutrition cache when ingredients change
+    // Invalidate nutrition cache when ingredients change — the portion weight is derived
+    // from the same ingredients, so it goes stale together with the nutrition.
     const nutritionValue = ingredients ? null : meal.nutrition_per_serving;
+    const portionWeightValue = ingredients ? null : meal.portion_weight_g;
 
     db.prepare(`
-      UPDATE meals SET name = ?, ingredients = ?, shopping_ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?, nutrition_per_serving = ?
+      UPDATE meals SET name = ?, ingredients = ?, shopping_ingredients = ?, default_servings = ?, starred = ?, rating = ?, category = ?, tags = ?, recipe_url = ?, comment = ?, recipe_text = ?, prep_time = ?, total_time = ?, nutrition_per_serving = ?, portion_weight_g = ?
       WHERE id = ? AND user_id = ?
     `).run(
       name ?? meal.name,
@@ -155,6 +160,7 @@ router.put('/:id', (req, res) => {
       prepTime !== undefined ? (prepTime || null) : meal.prep_time,
       totalTime !== undefined ? (totalTime || null) : meal.total_time,
       nutritionValue,
+      portionWeightValue,
       req.params.id,
       req.userId
     );
@@ -165,6 +171,122 @@ router.put('/:id', (req, res) => {
     console.error('Update meal error:', err);
     res.status(500).json({ error: 'Mahlzeit konnte nicht aktualisiert werden' });
   }
+});
+
+// --- Quick meals (eaten without recipe, e.g. canteen): nutrition only, optional plate photo ---
+
+const quickPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Nur JPG, PNG und WebP Dateien sind erlaubt'));
+  },
+});
+
+function handleQuickUpload(req, res, next) {
+  quickPhotoUpload.single('photo')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'Bild ist zu groß (max. 10 MB).' : (err.message || 'Upload fehlgeschlagen');
+      return res.status(400).json({ error: msg });
+    }
+    next();
+  });
+}
+
+/** Validate the JSON "data" field of a quick meal create/update request. */
+function parseQuickMealData(req) {
+  let data;
+  try { data = JSON.parse(req.body?.data || '{}'); } catch { return { error: 'Ungültige Daten' }; }
+  const name = String(data.name || '').trim().slice(0, 200);
+  if (!name) return { error: 'Name ist erforderlich' };
+  const nutrition = parseNutrition(data.nutritionPerServing);
+  if (nutrition.kcal <= 0) return { error: 'Kalorien sind erforderlich' };
+  return {
+    name,
+    description: String(data.description || '').slice(0, 2000) || null,
+    breakdown: String(data.breakdown || '').slice(0, 5000) || null,
+    nutrition,
+    removePhoto: !!data.removePhoto,
+    isDrink: !!data.isDrink,
+  };
+}
+
+/** Store an uploaded plate photo under a unique name (so browsers don't show a cached old one). */
+function saveQuickPhoto(file, mealId) {
+  const ext = file.mimetype === 'image/png' ? '.png' : file.mimetype === 'image/webp' ? '.webp' : '.jpg';
+  const filename = `${mealId}_${Date.now()}${ext}`;
+  writeFileSync(join(__dirname, '..', 'data', 'photos', filename), file.buffer);
+  return `/api/photos/${filename}`;
+}
+
+router.post('/quick', handleQuickUpload, (req, res) => {
+  try {
+    const q = parseQuickMealData(req);
+    if (q.error) return res.status(400).json({ error: q.error });
+
+    const id = generateMealId();
+    const photoUrl = req.file ? saveQuickPhoto(req.file, id) : null;
+    db.prepare(`
+      INSERT INTO meals (id, user_id, name, ingredients, default_servings, comment, recipe_text, photo_url, nutrition_per_serving, is_quick, is_drink)
+      VALUES (?, ?, ?, '[]', 1, ?, ?, ?, ?, 1, ?)
+    `).run(id, req.userId, q.name, q.description, q.breakdown, photoUrl, JSON.stringify(q.nutrition), q.isDrink ? 1 : 0);
+
+    res.status(201).json(rowToMeal(db.prepare('SELECT * FROM meals WHERE id = ?').get(id)));
+  } catch (err) {
+    console.error('Create quick meal error:', err);
+    res.status(500).json({ error: 'Mahlzeit konnte nicht gespeichert werden' });
+  }
+});
+
+router.put('/quick/:id', handleQuickUpload, (req, res) => {
+  try {
+    const meal = getMealForUser(req.params.id, req.userId);
+    if (!meal || !meal.is_quick) return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
+    const q = parseQuickMealData(req);
+    if (q.error) return res.status(400).json({ error: q.error });
+
+    let photoUrl = meal.photo_url;
+    if (req.file || q.removePhoto) {
+      deletePhotoFile(meal.photo_url);
+      photoUrl = req.file ? saveQuickPhoto(req.file, meal.id) : null;
+    }
+    db.prepare(`
+      UPDATE meals SET name = ?, comment = ?, recipe_text = ?, photo_url = ?, nutrition_per_serving = ?
+      WHERE id = ? AND user_id = ?
+    `).run(q.name, q.description, q.breakdown, photoUrl, JSON.stringify(q.nutrition), meal.id, req.userId);
+
+    res.json(rowToMeal(db.prepare('SELECT * FROM meals WHERE id = ?').get(meal.id)));
+  } catch (err) {
+    console.error('Update quick meal error:', err);
+    res.status(500).json({ error: 'Mahlzeit konnte nicht gespeichert werden' });
+  }
+});
+
+// When and how often each quick meal was entered in a plan (for "Zuletzt gegessen"): the latest
+// day up to `today` (the client's date); only meals that are merely planned get a future day.
+// Menu-course slots ("course_…") have no date and are left out.
+router.get('/quick/usage', (req, res) => {
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(req.query.today) ? req.query.today : new Date().toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT e.meal_id AS mealId,
+           COALESCE(MAX(CASE WHEN e.date <= ? THEN e.date END), MIN(e.date)) AS lastDate,
+           COUNT(*) AS count
+    FROM meal_plan_entries e JOIN meals m ON m.id = e.meal_id
+    WHERE m.user_id = ? AND m.is_quick = 1 AND m.is_drink = 0 AND e.date NOT LIKE 'course_%'
+    GROUP BY e.meal_id
+  `).all(today, req.userId);
+  res.json(Object.fromEntries(rows.map(r => [r.mealId, { lastDate: r.lastDate, count: r.count }])));
+});
+
+// Move a meal between recipes and quick meals. Everything else (ingredients → shopping list,
+// category/tags → booster suggestions, nutrition) stays as it is, so this is reversible.
+router.patch('/:id/quick', (req, res) => {
+  const meal = getMealForUser(req.params.id, req.userId);
+  if (!meal) return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
+  const isQuick = req.body?.isQuick ? 1 : 0;
+  db.prepare('UPDATE meals SET is_quick = ? WHERE id = ? AND user_id = ?').run(isQuick, meal.id, req.userId);
+  res.json(rowToMeal(db.prepare('SELECT * FROM meals WHERE id = ?').get(meal.id)));
 });
 
 // Delete meal
@@ -311,9 +433,14 @@ router.post('/import', async (req, res) => {
 
       const id = generateMealId();
 
+      // Nutrition from the file (per serving, like our own export); `nutrition` accepted as alias.
+      const nutrition = parseSuppliedNutrition(recipe.nutritionPerServing ?? recipe.nutrition);
+      const importedTags = Array.isArray(recipe.tags) ? recipe.tags.filter(t => typeof t === 'string') : null;
+      const tags = nutrition ? withHighProteinTag(importedTags || [], nutrition) : importedTags;
+
       db.prepare(`
-        INSERT INTO meals (id, user_id, name, ingredients, shopping_ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO meals (id, user_id, name, ingredients, shopping_ingredients, default_servings, starred, rating, category, tags, recipe_url, comment, recipe_text, prep_time, total_time, nutrition_per_serving)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         req.userId,
@@ -324,12 +451,13 @@ router.post('/import', async (req, res) => {
         0,
         recipe.rating || null,
         recipe.category || null,
-        recipe.tags ? JSON.stringify(recipe.tags) : null,
+        tags ? JSON.stringify(tags) : null,
         recipe.recipeUrl || null,
         recipe.comment || null,
         recipe.recipeText || null,
         recipe.prepTime || null,
-        recipe.totalTime || null
+        recipe.totalTime || null,
+        nutrition ? JSON.stringify(nutrition) : null
       );
 
       // Try to download photo if URL provided
@@ -384,6 +512,46 @@ router.post('/:id/photo-from-url', async (req, res) => {
     console.error('Download photo from URL error:', err);
     res.status(500).json({ error: 'Foto konnte nicht heruntergeladen werden' });
   }
+});
+
+// --- Meal share endpoints ---
+
+function getMealShareBaseUrl(req) {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  return `${proto}://${host}`;
+}
+
+router.post('/:id/share', (req, res) => {
+  const meal = getMealForUser(req.params.id, req.userId);
+  if (!meal) return res.status(404).json({ error: 'Rezept nicht gefunden' });
+
+  const existing = db.prepare('SELECT * FROM meal_shares WHERE meal_id = ?').get(meal.id);
+  const baseUrl = getMealShareBaseUrl(req);
+  if (existing) {
+    return res.json({ token: existing.token, url: `${baseUrl}/?shared-meal=${existing.token}` });
+  }
+  const token = crypto.randomBytes(16).toString('hex');
+  db.prepare('INSERT INTO meal_shares (meal_id, token, created_by) VALUES (?, ?, ?)').run(meal.id, token, req.userId);
+  res.json({ token, url: `${baseUrl}/?shared-meal=${token}` });
+});
+
+router.get('/:id/share', (req, res) => {
+  const meal = getMealForUser(req.params.id, req.userId);
+  if (!meal) return res.status(404).json({ error: 'Rezept nicht gefunden' });
+
+  const share = db.prepare('SELECT * FROM meal_shares WHERE meal_id = ?').get(meal.id);
+  if (!share) return res.json({ shared: false });
+  const baseUrl = getMealShareBaseUrl(req);
+  res.json({ shared: true, token: share.token, url: `${baseUrl}/?shared-meal=${share.token}` });
+});
+
+router.delete('/:id/share', (req, res) => {
+  const meal = getMealForUser(req.params.id, req.userId);
+  if (!meal) return res.status(404).json({ error: 'Rezept nicht gefunden' });
+
+  db.prepare('DELETE FROM meal_shares WHERE meal_id = ?').run(meal.id);
+  res.json({ ok: true });
 });
 
 export default router;

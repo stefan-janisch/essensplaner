@@ -1,10 +1,16 @@
 import { useState } from 'react';
+import { format, parseISO } from 'date-fns';
+import { de } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
 import { useMealPlan } from '../context/MealPlanContext';
 import { api } from '../api/client.js';
 import { DEFAULT_NUTRITION_TARGETS } from '../types/index.js';
 import type { NutritionTargets, NutritionInfo } from '../types/index.js';
 import { NutritionCalculator } from './NutritionCalculator';
+import { CoffeeSettings } from './CoffeeChip';
+import { getDayEnergy, isHealthSource } from '../utils/nutritionCalculator';
+import { SORT_OPTIONS } from '../utils/mealFilters';
+import type { SortBy } from '../utils/mealFilters';
 
 type SettingsTab = 'profile' | 'calculator' | 'weight';
 
@@ -13,7 +19,11 @@ function NutritionBackfill() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, current: '' });
 
-  const missing = state.meals.filter(m => !m.nutritionPerServing && m.ingredients?.length > 0);
+  // Recipes estimated before portion weights existed only need the (cheaper) weight call —
+  // the endpoint keeps the cached nutrition and just fills in what is missing.
+  const missing = state.meals.filter(
+    m => m.ingredients?.length > 0 && (!m.nutritionPerServing || !m.portionWeight)
+  );
 
   const handleBackfill = async () => {
     setRunning(true);
@@ -23,7 +33,7 @@ function NutritionBackfill() {
       const meal = missing[i];
       setProgress({ done: i, total: missing.length, current: meal.name });
       try {
-        await api.post<{ nutritionPerServing: NutritionInfo; tagsUpdated: string[] | null }>(
+        await api.post<{ nutritionPerServing: NutritionInfo; portionWeight?: number; tagsUpdated: string[] | null }>(
           '/api/estimate-nutrition', { mealId: meal.id }
         );
       } catch {
@@ -43,7 +53,7 @@ function NutritionBackfill() {
     <div className="settings-section" style={{ marginTop: '20px', borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
       <h3>Nährwerte berechnen</h3>
       <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
-        {missing.length} Rezept{missing.length !== 1 ? 'e' : ''} ohne Nährwertschätzung.
+        {missing.length} Rezept{missing.length !== 1 ? 'e' : ''} ohne vollständige Schätzung (Nährwerte oder Portionsgewicht).
       </p>
       {running ? (
         <div style={{ fontSize: '13px' }}>
@@ -61,9 +71,13 @@ function NutritionBackfill() {
   );
 }
 
-function ProfileTab() {
+function ProfileTab({ onOpenCalculator }: { onOpenCalculator: () => void }) {
   const { user, logout } = useAuth();
-  const { defaultServings, setDefaultServings, nutritionTargets, setNutritionTargets, mealsPerDay, setMealsPerDay, nutritionLogEnabled, setNutritionLogEnabled } = useMealPlan();
+  const { defaultServings, setDefaultServings, nutritionTargets, setNutritionTargets, mealsPerDay, setMealsPerDay, nutritionLogEnabled, setNutritionLogEnabled, defaultRecipeSort, setDefaultRecipeSort, nutritionProfile, activity, sport, flexibleSportEnabled, today, todayTargets } = useMealPlan();
+  // With a nutrition profile every day target is calculated (per weekday, Apple Health if on) —
+  // the manual values are not used, so they are shown read-only with today's calculated values.
+  const calculated = !!nutritionProfile;
+  const todayFromHealth = !!nutritionProfile && isHealthSource(getDayEnergy(nutritionProfile, today, activity, sport));
 
   const current = nutritionTargets ?? DEFAULT_NUTRITION_TARGETS;
   const [targets, setTargets] = useState<NutritionTargets>({ ...current });
@@ -78,7 +92,7 @@ function ProfileTab() {
     try {
       if (servings !== defaultServings) await setDefaultServings(servings);
       if (mpd !== mealsPerDay) await setMealsPerDay(mpd);
-      await setNutritionTargets(targets);
+      if (!calculated) await setNutritionTargets(targets);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } finally {
@@ -113,8 +127,27 @@ function ProfileTab() {
 
       <div className="settings-section">
         <h3>Nährwert-Ziele (pro Tag)</h3>
+        {calculated ? (
+          // Calculated per day — the manual fields below are not used, so show today's result instead.
+          <div className="targets-summary">
+            <div className="targets-summary-values">
+              <span><strong>{todayTargets.kcal.toLocaleString('de-DE')}</strong> kcal</span>
+              <span><strong>{todayTargets.protein}</strong> g Protein</span>
+              <span><strong>{todayTargets.carbs}</strong> g KH</span>
+              <span><strong>{todayTargets.fat}</strong> g Fett</span>
+            </div>
+            <p>
+              Heute ({format(parseISO(today), 'EEEE', { locale: de })}), automatisch berechnet
+              {todayFromHealth ? ' mit Apple Health' : flexibleSportEnabled ? ' mit flexiblem Sportmodus' : ' aus dem Wochenplan'} –
+              jeder Tag hat sein eigenes Ziel.
+            </p>
+            <button type="button" className="btn btn-muted btn-sm" onClick={onOpenCalculator}>Im Ernährungsrechner anpassen →</button>
+          </div>
+        ) : (
+        <>
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
-          Diese Werte werden als Referenz im Nährwert-Diagramm verwendet. Der Ernährungsrechner kann sie automatisch berechnen.
+          Feste Ziele für jeden Tag. Im Ernährungsrechner kannst du sie stattdessen aus Körperdaten, Training und
+          Apple Health pro Tag berechnen lassen.
         </p>
         <div className="settings-nutrition-grid">
           {([
@@ -138,6 +171,8 @@ function ProfileTab() {
             Auf DGE-Empfehlung zurücksetzen
           </button>
         )}
+        </>
+        )}
       </div>
 
       <div className="settings-section">
@@ -147,7 +182,23 @@ function ProfileTab() {
           <span>Nährwert-Log aktivieren</span>
         </label>
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-          Zeichnet alle als gekocht markierten Mahlzeiten (Status ✗) bis einschließlich heute samt Nährwerten im Hintergrund auf – als Grundlage für den Monatsbericht.
+          Zeichnet alle Mahlzeiten deiner Pläne bis einschließlich heute samt Nährwerten im Hintergrund auf – als Grundlage für den Monatsbericht. Änderungen am Plan werden übernommen; gelöschte Pläne bleiben im Bericht erhalten.
+        </p>
+      </div>
+
+      <CoffeeSettings />
+
+      <div className="settings-section">
+        <h3>Rezepte</h3>
+        <div className="settings-field">
+          <label>Standard-Sortierung</label>
+          <select className="input" value={defaultRecipeSort}
+            onChange={e => setDefaultRecipeSort(e.target.value as SortBy)} style={{ width: '220px' }}>
+            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+          Gilt für die Rezeptverwaltung und die Rezeptauswahl im Plan. Wird sofort gespeichert.
         </p>
       </div>
 
@@ -174,12 +225,12 @@ export function UserSettings() {
     <div className="user-settings">
       <div className="settings-tabs">
         <button className={`btn btn-ghost btn-sm ${tab === 'profile' ? 'btn-nav-active' : ''}`}
-          onClick={() => setTab('profile')}>Profil</button>
+          onClick={() => setTab('profile')}>Allgemein</button>
         <button className={`btn btn-ghost btn-sm ${tab === 'calculator' ? 'btn-nav-active' : ''}`}
           onClick={() => setTab('calculator')}>Ernährungsrechner</button>
       </div>
 
-      {tab === 'profile' && <ProfileTab />}
+      {tab === 'profile' && <ProfileTab onOpenCalculator={() => setTab('calculator')} />}
       {tab === 'calculator' && <NutritionCalculator />}
     </div>
   );

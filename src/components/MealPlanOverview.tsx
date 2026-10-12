@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DateRange, type RangeKeyDict } from 'react-date-range';
 import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { useMealPlan } from '../context/MealPlanContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { ShareDialog } from './ShareDialog';
+import { PlanScoreBadge } from './PlanScoreBadge';
 import type { MealPlan, PlanType } from '../types/index.js';
 
 interface MealPlanOverviewProps {
@@ -14,7 +15,7 @@ interface MealPlanOverviewProps {
 }
 
 export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }) => {
-  const { state, createPlan, deletePlan, leavePlan, selectPlan, renamePlan, archivePlan, refreshPlans } = useMealPlan();
+  const { state, createPlan, deletePlan, leavePlan, selectPlan, renamePlan, archivePlan, refreshPlans, loadPlanDetails } = useMealPlan();
   const isMobile = useIsMobile();
   const [showCreate, setShowCreate] = useState(false);
   const [createType, setCreateType] = useState<'weekly' | 'menu'>('weekly');
@@ -53,6 +54,18 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
       p.ownerEmail?.toLowerCase().includes(q)
     );
   };
+
+  // Plan scores need entries — load them for visible weekly plans that have any.
+  const scoreablePlanIds = useMemo(() =>
+    [...activePlans, ...(showArchived ? archivedPlans : [])]
+      .filter(p => p.planType !== 'menu' && !p.entries && (p.entryCount ?? 0) > 0)
+      .map(p => p.id)
+      .join(','),
+    [activePlans, archivedPlans, showArchived]
+  );
+  useEffect(() => {
+    if (scoreablePlanIds) loadPlanDetails(scoreablePlanIds.split(',').map(Number));
+  }, [scoreablePlanIds, loadPlanDetails]);
 
   const filteredActive = filterPlans(activePlans);
   const filteredArchived = filterPlans(archivedPlans);
@@ -189,8 +202,9 @@ export const MealPlanOverview: React.FC<MealPlanOverviewProps> = ({ onOpenPlan }
         </div>
       )}
 
-      <div style={{ fontSize: '13px', color: 'var(--text)', marginBottom: '16px' }}>
+      <div style={{ fontSize: '13px', color: 'var(--text)', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
         {planInfo(plan)}
+        <PlanScoreBadge plan={plan} size="sm" />
       </div>
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>

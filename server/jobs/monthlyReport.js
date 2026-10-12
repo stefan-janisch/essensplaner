@@ -10,6 +10,7 @@
 import cron from 'node-cron';
 import db from '../db.js';
 import { sendPush } from '../notify.js';
+import { reconcileNutritionLogs } from '../routes/nutritionLogs.js';
 
 const MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -29,7 +30,12 @@ export async function sendDueReport() {
   const already = db.prepare('SELECT 1 FROM report_notifications WHERE month = ?').get(month);
   if (already) return;
 
-  // Only notify if at least one opted-in user actually has logged meals that month.
+  // The log is otherwise only brought up to date when the report is read — sync it first so a
+  // month counts even if nobody opened the report. Then only notify if an opted-in user has
+  // logged meals that month.
+  for (const { id } of db.prepare('SELECT id FROM users WHERE nutrition_log_enabled = 1').all()) {
+    reconcileNutritionLogs(id);
+  }
   const hasData = db.prepare(
     `SELECT 1 FROM nutrition_logs nl JOIN users u ON u.id = nl.user_id
      WHERE u.nutrition_log_enabled = 1 AND substr(nl.date, 1, 7) = ? LIMIT 1`

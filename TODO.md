@@ -91,13 +91,32 @@
 
 - [x] Favoriten sollten in der Rezepte Sidebar nicht automatisch immer ganz oben angezeigt werden. Sortiere standardmäßig nach Nutritional Score
 
-- [ ] Meal Plan Auto-Optimizer
+- [x] Nutritional Score überprüfen. Er wirkt unzuverlässig. Evtl. nur auf Protein und kcal beschränken.
+
+- [x] Nährwert-Scoring für Meal Plans: Berechne einen Score für den gesamten Meal Plan, der die Nährwerte aller Rezepte zusammenfasst. Zeige diesen Score in der Meal Plan Sidebar an. Der Score sollte auf den Nährwerten basieren und eine Gesamtbewertung von 0-100 liefern.
+
+- [x] g Protein pro 100 kcal in den Rezeptkarten anzeigen.
+
+- [x] Hinzufügen von einzelnen Mahlzeiten (keinen Rezepten): Wenn ich zu Mittag in die Kantine gehe, möchte ich trotzdem die Nährwerte für den Tag tracken können. Ich möchte also eine Mahlzeit hinzufügen können, die keine Rezepte enthält, sondern nur die Nährwerte. Dazu soll es eine KI-Funktion geben, die mir die Nährwerte für eine Mahlzeit schätzt, wenn ich ihr den Namen der Mahlzeit und die ungefähre Portionsgröße gebe. Die KI soll mir dann die Nährwerte für diese Mahlzeit zurückgeben, die ich dann in meinen Meal Plan einfügen kann. Das kann als Chat mit der KI implementiert werden, die mir die Nährwerte schätzt. Ich kann dann die geschätzten Nährwerte anpassen, bevor ich sie in meinen Meal Plan einfüge. Brainstorme zunächst mit mir, wie wir die KI-Funktion am besten implementieren können. Wir sollten auch überlegen, wie wir die Nährwerte für die Mahlzeiten in der Datenbank speichern und abrufen können.
+    - [x] Nur für User janisch.stef@gmail.com eine Anbindung an diese Website: https://www.napopizza.at/campus mit Auswahlmöglichkeit eines der beiden Tagesmenüs für jeden Wochentag. Die KI soll die Nährwerte für das gewählte Menü schätzen und in den Meal Plan einfügen.
+
+
+- [x] Meal Plan Auto-Optimizer
   Ein Button im Meal Plan, der für alle Einträge eines Tages die Portionsgrößen
   gleichzeitig optimiert — nicht einzeln pro Rezept, sondern so dass die
   Tagessumme die Ziele trifft. Rezept A bekommt 0.7×, Rezept B bekommt 1.2×,
   insgesamt passt der Tag.
 
-
-- [ ] Wochenplan-Scoring als Info-Button mit Popup
+- [x] Wochenplan-Scoring als Info-Button mit Popup
   Gesamtbewertung für die Woche: "Dein Wochenplan deckt 94% deiner Ziele — mit
   optimierten Portionen wären es 98%". Ein-Klick-Optimierung für den ganzen Plan.
+
+
+
+
+- [ ] Nahrungsmittelunverträglichkeiten: Der User kann in den Einstellungen Unverträglichkeiten angeben, z.B. gegen Histamin, Nüsse, Laktose, Gluten oder FODMAPs. [...]
+    - Histamin
+    - Nüsse
+    - Laktose
+    - Gluten
+    - FODMAPs

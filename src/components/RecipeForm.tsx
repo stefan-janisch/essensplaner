@@ -2,6 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { RECIPE_CATEGORIES } from '../constants/categories';
 import { TAG_GROUPS, parseTag, formatTag } from '../constants/tags';
 import type { Meal, Ingredient } from '../types/index.js';
+import { compressImage } from '../utils/image';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -76,36 +77,21 @@ async function parseRecipeFromImages(files: File[], existingTags: string[]): Pro
   return response.json();
 }
 
-// Re-encode an image to JPEG with a long-edge cap. Cuts upload size and Vision API tokens.
-async function compressImage(file: File, maxEdge = 2048, quality = 0.85): Promise<File> {
-  const dataUrl: string = await new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result as string);
-    fr.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
-    fr.readAsDataURL(file);
+async function generateRecipeFromDescription(description: string, existingTags: string[]): Promise<ParsedRecipe> {
+  const response = await fetch(`${API_URL}/api/generate-recipe`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description, existingTags }),
   });
-  const img: HTMLImageElement = await new Promise((resolve, reject) => {
-    const el = new Image();
-    el.onload = () => resolve(el);
-    el.onerror = () => reject(new Error('Bild konnte nicht dekodiert werden'));
-    el.src = dataUrl;
-  });
-  const longEdge = Math.max(img.width, img.height);
-  const scale = longEdge > maxEdge ? maxEdge / longEdge : 1;
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return file;
-  ctx.drawImage(img, 0, 0, w, h);
-  const blob: Blob = await new Promise((resolve, reject) => {
-    canvas.toBlob(b => b ? resolve(b) : reject(new Error('Bild konnte nicht kodiert werden')), 'image/jpeg', quality);
-  });
-  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Fehler beim Erstellen des Rezepts' }));
+    throw new Error(error.error || 'Fehler beim Erstellen des Rezepts');
+  }
+  return response.json();
 }
 
+// Re-encode an image to JPEG with a long-edge cap. Cuts upload size and Vision API tokens.
 async function cleanRecipeText(recipeText: string): Promise<string> {
   const response = await fetch(`${API_URL}/api/clean-recipe-text`, {
     method: 'POST',
@@ -289,7 +275,9 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   const [ingredientText, setIngredientText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
-  const [importMode, setImportMode] = useState<'url' | 'image' | 'text'>('url');
+  const [importMode, setImportMode] = useState<'url' | 'image' | 'text' | 'ai'>('url');
+  const [aiDescription, setAiDescription] = useState('');
+  const [aiStep, setAiStep] = useState<null | 'recipe' | 'ingredients'>(null);
   const [importImages, setImportImages] = useState<File[]>([]);
   const [importImagePreviews, setImportImagePreviews] = useState<string[]>([]);
   const imageImportInputRef = useRef<HTMLInputElement>(null);
@@ -338,22 +326,28 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   // Unstructured tags (backward compat)
   const unstructuredTags = tags.filter(t => !parseTag(t));
 
-  const applyParsedRecipe = async (parsed: ParsedRecipe) => {
-    if (!name.trim()) setName(parsed.name);
-    if (servings === 2 || !servings) setServings(parsed.servings);
+  /**
+   * Fill the form from an imported/generated recipe. Imports only fill empty fields;
+   * `overwrite` (AI recipe) replaces them, so generating again replaces the previous result.
+   * `skipClean`: the text is already in the app's format (AI recipe), no clean-up call needed.
+   */
+  const applyParsedRecipe = async (parsed: ParsedRecipe, opts: { overwrite?: boolean; skipClean?: boolean } = {}) => {
+    const { overwrite = false, skipClean = false } = opts;
+    if (overwrite || !name.trim()) setName(parsed.name);
+    if (overwrite || servings === 2 || !servings) setServings(parsed.servings);
     setIngredientText(parsed.ingredientText);
-    if (!recipeText.trim()) setRecipeText(parsed.recipeText);
-    if (!category && parsed.category) setCategory(parsed.category);
-    if (tags.length === 0 && parsed.tags?.length) setTags(parsed.tags);
-    if (!prepTime && parsed.prepTime) setPrepTime(parsed.prepTime);
-    if (!totalTime && parsed.totalTime) setTotalTime(parsed.totalTime);
+    if (overwrite || !recipeText.trim()) setRecipeText(parsed.recipeText);
+    if ((overwrite || !category) && parsed.category) setCategory(parsed.category);
+    if ((overwrite || tags.length === 0) && parsed.tags?.length) setTags(parsed.tags);
+    if ((overwrite || !prepTime) && parsed.prepTime) setPrepTime(parsed.prepTime);
+    if ((overwrite || !totalTime) && parsed.totalTime) setTotalTime(parsed.totalTime);
     if (!photoPreview && parsed.photoUrl) {
       setRemotePhotoUrl(parsed.photoUrl);
       setPhotoPreview(parsed.photoUrl);
       setPhotoFile(null);
       setDeletePhoto(false);
     }
-    if (parsed.recipeText?.trim()) {
+    if (parsed.recipeText?.trim() && !skipClean) {
       try {
         const cleaned = await cleanRecipeText(parsed.recipeText);
         setRecipeText(cleaned);
@@ -364,9 +358,25 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       if (parsedIngs.ingredients.length > 0) {
         setIngredients(parsedIngs.ingredients.map(ing => ({ ...ing, amountText: formatAmountRange(ing.amount, ing.amountMax) })));
         setShoppingIngredients(parsedIngs.shoppingIngredients || []);
-        if (parsedIngs.servings && (servings === 2 || !servings)) setServings(parsedIngs.servings);
+        if (parsedIngs.servings && !overwrite && (servings === 2 || !servings)) setServings(parsedIngs.servings);
       }
     } catch { /* user can still parse manually */ }
+  };
+
+  const handleGenerateRecipe = async () => {
+    if (!aiDescription.trim()) return;
+    try {
+      setIsParsing(true);
+      setAiStep('recipe');
+      const generated = await generateRecipeFromDescription(aiDescription, allUserTags);
+      setAiStep('ingredients');
+      await applyParsedRecipe(generated, { overwrite: true, skipClean: true });
+    } catch (error) {
+      alert('Fehler beim Erstellen: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    } finally {
+      setIsParsing(false);
+      setAiStep(null);
+    }
   };
 
   const handleParseFromURL = async () => {
@@ -576,9 +586,45 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
               onClick={() => setImportMode('text')}
               style={{ fontSize: '13px', padding: '4px 12px' }}
             >📝 Text</button>
+            {/* Only for new recipes — on an existing one it would replace its content. */}
+            {!initialData && (
+              <button
+                type="button"
+                className={`pill ${importMode === 'ai' ? 'pill-active' : ''}`}
+                onClick={() => setImportMode('ai')}
+                style={{ fontSize: '13px', padding: '4px 12px' }}
+              >✨ KI</button>
+            )}
           </div>
 
-          {importMode === 'url' ? (
+          {importMode === 'ai' ? (
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px' }}>Gericht beschreiben:</label>
+              <textarea
+                className="textarea"
+                value={aiDescription}
+                onChange={(e) => setAiDescription(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleGenerateRecipe(); }}
+                placeholder={'z.B. „Proteinreiche Linsen-Bolognese für 4 Personen, max. 30 Minuten“\noder „Asiatisches Hähnchen mit Gemüse, ohne Pilze, Meal-Prep-tauglich“'}
+                rows={4}
+                maxLength={2000}
+                style={{ width: '100%', fontSize: '13px' }}
+              />
+              <p style={{ fontSize: '12px', color: 'var(--text)', margin: '4px 0 0' }}>
+                Die KI erstellt Name, Zutaten, Zubereitung, Zeiten und Tags. Alles lässt sich danach unten anpassen;
+                erneutes Erstellen ersetzt das Ergebnis.
+              </p>
+              <button
+                type="button"
+                className="btn btn-warning"
+                onClick={handleGenerateRecipe}
+                disabled={!aiDescription.trim() || isParsing}
+                style={{ marginTop: '8px', display: 'block', marginLeft: 'auto', marginRight: 'auto' }}
+              >
+                {aiStep === 'recipe' ? '✨ KI kocht…' : aiStep === 'ingredients' ? '✨ Zutaten werden aufbereitet…' : name.trim() && ingredients.some(i => i.name.trim()) ? '✨ Neu erstellen' : '✨ Rezept erstellen'}
+              </button>
+            </div>
+          ) : importMode === 'url' ? (
             <div>
               <label style={{ display: 'block', marginBottom: '5px' }}>Rezept-URL:</label>
               <input className="input" type="url" value={recipeUrl} onChange={(e) => setRecipeUrl(e.target.value)} placeholder="https://..." style={{ width: '100%' }} />
