@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- **Dev (client + server):** `npm run dev`
+- **Dev (client + server):** `npm run dev` — its server exits while production holds :3001 (only one server per port)
 - **Dev client only:** `npm run dev:client` (Vite on port 5173)
 - **Dev server only:** `npm run dev:server` (Express on port 3001)
 - **Build:** `npm run build` (runs `tsc -b && vite build`)
 - **Lint:** `npm run lint`
 - **Production start:** `npm start` (serves built client from `dist/`)
-- **Restart production server:** `./restart.sh` (builds, kills old server, starts new one, verifies health)
-- **Start dev server:** `./dev.sh` (kills old processes, runs `npm run dev`)
+- **Production server** runs as systemd unit `essensplaner.service` (loads `.env`; logs: `journalctl -u essensplaner`). Never start it with `nohup` — the server does not read `.env` itself.
+- **Restart production server:** `./restart.sh` (builds, restarts the systemd unit, frees :3001 from strays, verifies health)
+- **Start dev client:** `./dev.sh` (restarts Vite only; the dev client's API is production via `VITE_API_URL`, so backend changes need `./restart.sh`)
 
 No test framework is configured.
 
@@ -70,3 +71,18 @@ Session secret read from `SESSION_SECRET` env var.
 - Flexible sport mode (`users.flexible_sport_enabled`, toggle in Ernährungsrechner → Training): trainings are logged per day in the plan (`training_logs`, `/api/trainings`, 🏃 chip `TrainingChip.tsx`) instead of the fixed `weekDayTypes` schedule. `src/utils/sportModel.ts`: kcal = (MET − 1) × kg × h. The context's `sport` model is passed like `activity` to `getDayEnergy`/`getDayTargets`/`resolveDayTargets`: base TDEE drops the weekly training average; a day = baseline + its trainings (source `'training'`). With Apple Health, measured days keep the measurement (training already in it); unmeasured days use baseline + trainings instead of the weekday average.
 - ☕ Coffee (`server/coffee.js`, `src/components/CoffeeChip.tsx`): drinks are QuickMeals with `is_drink = 1` (hidden from the QuickMeal picker). Cups are **personal** plan entries — `meal_type = 'drinks'` on a real date, `personal_user_id` = the drinker, `servings` = cups — only returned to that user (`GET /api/plans/:id`) and counted fully for them (`sumDay` skips the persons divisor; nutrition log uses persons = 1). Set via `PUT /api/plans/:id/coffee`. The daily habit (`users.coffee_habit`) is pre-filled on plan load from the client's `?today=` on (`auto_habit` entries, `coffee_habit_fill` remembers how far); changing the habit replaces only untouched future days.
 - Apple Health mode (`users.health_enabled`): `src/utils/activityModel.ts` builds a 6-week per-weekday average of `activity_days`; `getDayEnergy`/`getDayTargets` in `nutritionCalculator.ts` then use BMR × 1.1 + active kcal × `health_active_factor` instead of the activity-level/training heuristic (measured value for past days, weekday average from today on). Nutrition targets are always per day: use the context's `targetsForDate(date)` (or `todayTargets` where there is no date, e.g. recipe lists) — never the stored `nutritionTargets` directly, which only apply without a nutrition profile.
+
+## Deploy Configuration (configured by /setup-deploy)
+- Platform: custom (self-hosted VPS: this machine; systemd `essensplaner.service` on :3001 behind nginx + Let's Encrypt)
+- Production URL: https://essensplaner.stefanjanisch.net
+- Deploy workflow: none (no CI; deploy runs manually on this host from /opt/essensplaner)
+- Deploy status command: `systemctl is-active essensplaner.service`
+- Merge method: squash
+- Project type: web app
+- Post-deploy health check: https://essensplaner.stefanjanisch.net/api/health
+
+### Custom deploy hooks
+- Pre-merge: `npx tsc -b` (type check only; `npm run build` would overwrite the live `dist/` that prod serves)
+- Deploy trigger: `./restart.sh` (deploys the working tree, not origin/main; after a GitHub merge, `git pull --ff-only` first)
+- Deploy status: `systemctl is-active essensplaner.service`
+- Health check: https://essensplaner.stefanjanisch.net/api/health

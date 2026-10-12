@@ -2257,7 +2257,12 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+  // Express 5 reports listen errors here — exit instead of idling (with a live scheduler) without a port
+  if (err) {
+    console.error(`❌ Cannot listen on port ${PORT}: ${err.message}`);
+    process.exit(1);
+  }
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📁 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🌐 Client URL: ${CLIENT_URL}`);
